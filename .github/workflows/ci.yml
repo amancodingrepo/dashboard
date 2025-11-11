@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: flowbit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix apps/api
+          npm ci --prefix apps/web
+
+      - name: Prisma generate & migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/flowbit?schema=public
+        run: |
+          npx prisma generate --schema prisma/schema.prisma
+          npx prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: Build API and Web
+        run: |
+          npm run build --prefix apps/api
+          npm run build --prefix apps/web
+
+      - name: Build Docker images
+        run: |
+          docker build -t flowbit-api ./apps/api
+          docker build -t flowbit-web ./apps/web
+          docker build -t flowbit-vanna ./services/vanna
+

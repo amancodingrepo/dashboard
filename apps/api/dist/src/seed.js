@@ -1,0 +1,141 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+// apps/api/src/seed.ts
+const dotenv = __importStar(require("dotenv"));
+const path_1 = __importDefault(require("path"));
+dotenv.config({ path: path_1.default.resolve(__dirname, "../../../.env") });
+const client_1 = require("@prisma/client");
+const fs_1 = __importDefault(require("fs"));
+const prisma = new client_1.PrismaClient();
+function pick(...candidates) {
+    for (const c of candidates)
+        if (c !== undefined)
+            return c;
+    return null;
+}
+async function main() {
+    var _a;
+    const filePath = path_1.default.join(__dirname, "../Analytics_Test_Data.json"); // your file location
+    if (!fs_1.default.existsSync(filePath)) {
+        throw new Error(`JSON file not found at ${filePath}`);
+    }
+    const raw = fs_1.default.readFileSync(filePath, "utf8");
+    const jsonData = JSON.parse(raw);
+    console.log("🚀 Seeding database...", Array.isArray(jsonData) ? jsonData.length : "non-array");
+    let insertedInvoices = 0;
+    const vendorCache = new Map();
+    const customerCache = new Map();
+    for (const record of jsonData) {
+        // flexible key matching - add more keys here if your JSON uses different names
+        const vendorName = pick(record.vendor, record.vendor_name, record.supplier, record.vendorName) || "Unknown Vendor";
+        const customerName = pick(record.customer, record.customer_name, record.client, record.customerName) || "Unknown Customer";
+        const invoiceRef = pick(record.invoiceRef, record.invoice_id, record.invoice_no, record.id, record.ref) || null;
+        const invoiceDateRaw = pick(record.invoiceDate, record.date, record.created_at, record.invoice_date) || null;
+        let totalRaw = (_a = pick(record.totalAmount, record.amount, record.value, record.total)) !== null && _a !== void 0 ? _a : null;
+        // parse safe values
+        let invoiceDate = null;
+        try {
+            invoiceDate = invoiceDateRaw ? new Date(invoiceDateRaw) : null;
+        }
+        catch { }
+        if (totalRaw == null) {
+            totalRaw = Math.floor(500 + Math.random() * 4500);
+        }
+        const totalAmount = typeof totalRaw === "string"
+            ? parseFloat(totalRaw.replace(/[^0-9.-]+/g, ""))
+            : Number(totalRaw || 0);
+        // vendor upsert (unique on name)
+        let vendorId = vendorCache.get(vendorName);
+        if (!vendorId) {
+            const v = await prisma.vendor.upsert({
+                where: { name: vendorName },
+                update: {},
+                create: { name: vendorName },
+            });
+            vendorId = v.id;
+            vendorCache.set(vendorName, vendorId);
+        }
+        // customer find/create (some schemas may not have unique name)
+        let customerId = customerCache.get(customerName);
+        if (!customerId) {
+            const existing = await prisma.customer
+                .findUnique({ where: { name: customerName } })
+                .catch(() => null);
+            if (existing) {
+                customerId = existing.id;
+            }
+            else {
+                const c = await prisma.customer.create({
+                    data: { name: customerName },
+                });
+                customerId = c.id;
+            }
+            customerCache.set(customerName, customerId);
+        }
+        // avoid duplicate invoice by unique invoiceRef if present
+        if (invoiceRef) {
+            const exists = await prisma.invoice
+                .findUnique({ where: { invoiceRef } })
+                .catch(() => null);
+            if (exists)
+                continue;
+        }
+        await prisma.invoice.create({
+            data: {
+                invoiceRef: invoiceRef || undefined,
+                invoiceDate: invoiceDate || undefined,
+                totalAmount: isNaN(totalAmount) ? 0 : totalAmount,
+                vendorId,
+                customerId,
+            },
+        });
+        insertedInvoices++;
+    }
+    console.log(`✅ Seed complete — inserted ${insertedInvoices} invoices.`);
+}
+main()
+    .then(async () => {
+    await prisma.$disconnect();
+})
+    .catch(async (e) => {
+    console.error("❌ Error seeding database:", e);
+    await prisma.$disconnect();
+    process.exit(1);
+});
+//# sourceMappingURL=seed.js.map

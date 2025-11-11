@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: buchhaltung-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: buchhaltung_analytics
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - buchhaltung-network
+
+  # Backend API
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: buchhaltung-api
+    environment:
+      NODE_ENV: production
+      PORT: 4001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/buchhaltung_analytics
+      VANNA_API_BASE_URL: http://vanna:8000
+      ALLOWED_ORIGINS: http://localhost:3000
+    ports:
+      - "4001:4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - buchhaltung-network
+
+  # Frontend Web App
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:4001
+    container_name: buchhaltung-web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4001
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - buchhaltung-network
+
+  # Vanna AI Service
+  vanna:
+    build:
+      context: ./vanna
+      dockerfile: Dockerfile
+    container_name: buchhaltung-vanna
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/buchhaltung_analytics
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: mixtral-8x7b-32768
+      PORT: 8000
+      HOST: 0.0.0.0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - buchhaltung-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  buchhaltung-network:
+    driver: bridge

@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: flowbit
+    ports:
+      - "5433:5432"  # Using 5433 to avoid conflict with local PostgreSQL on 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    # volumes:
+    #   - ./apps/api:/usr/src/app  # Commented out for production - volume overwrites built files
+    #   - ./prisma:/usr/src/prisma
+    #   - ./data:/usr/src/data
+    env_file: .env
+    environment:
+      PORT: 4000
+    ports:
+      - "4000:4000"
+      - "5555:5555"
+    depends_on:
+      db:
+        condition: service_healthy
+  web:
+    build: ./apps/web
+    # volumes:
+    #   - ./apps/web:/usr/src/app  # Commented out for production - volume overwrites built files
+    env_file: .env
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
+  vanna:
+    build: ./services/vanna
+    volumes:
+      - ./services/vanna:/app
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
