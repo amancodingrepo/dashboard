@@ -1,0 +1,103 @@
+# ==========================
+# 🧠 General
+# ==========================
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+
+# ==========================
+# 🧱 Node.js / NPM / Yarn
+# ==========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+
+# ==========================
+# ⚡ Next.js Build Files
+# ==========================
+.next/
+out/
+build/
+dist/
+.vercel/
+.cache/
+coverage/
+.next-cache/
+*.tsbuildinfo
+
+# ==========================
+# 🚀 Turborepo
+# ==========================
+turbo/
+.turbo/
+apps/*/.next/
+apps/*/out/
+apps/*/node_modules/
+apps/*/dist/
+apps/*/build/
+
+# ==========================
+# 🐋 Docker
+# ==========================
+.dockerignore
+docker-compose.override.yml
+*.pid
+*.seed
+.env
+.env.local
+.env.production
+.env.development
+
+# ==========================
+# 🧩 IDEs & Editors
+# ==========================
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# ==========================
+# 🔐 Sensitive Files
+# ==========================
+*.pem
+*.key
+*.crt
+*.pfx
+*.env
+.envrc
+*.secret
+secret.*
+config.local.json
+config.dev.json
+
+# ==========================
+# 🧪 Testing / Coverage
+# ==========================
+coverage/
+jest.cache/
+jest-html-reporters-*
+test-results/
+playwright-report/
+test-output/
+
+# ==========================
+# 💾 OS Generated
+# ==========================
+ehthumbs.db
+Icon?
+__MACOSX/
+
+# ==========================
+# ⚙️ Misc
+# ==========================
+tmp/
+temp/
+.cache-loader/
+logs/
