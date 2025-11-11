@@ -101,3 +101,9 @@ tmp/
 temp/
 .cache-loader/
 logs/
+
+# ==========================
+# 💾 Databases
+# ==========================
+*.db
+*.db-journal
