@@ -2,6 +2,7 @@ import { Router } from "express";
 import axios from "axios";
 import dotenv from "dotenv";
 import { prisma } from "../lib/prisma";
+import { Prisma } from "@prisma/client";
 dotenv.config();
 const router = Router();
 
@@ -62,17 +63,18 @@ async function handleQueryFallback(query: string): Promise<any> {
         timeText = "the last year";
       }
 
+      const aggregationArgs: Prisma.InvoiceAggregateArgs = {
+        _sum: { totalAmount: true },
+        _count: true,
+      };
+
       if (days > 0) {
         const fromDate = new Date();
         fromDate.setDate(fromDate.getDate() - days);
-        dateFilter.gte = fromDate;
+        aggregationArgs.where = { invoiceDate: { gte: fromDate } };
       }
 
-      const result = await prisma.invoice.aggregate({
-        where: { invoiceDate: dateFilter },
-        _sum: { totalAmount: true },
-        _count: { id: true },
-      });
+      const result = await prisma.invoice.aggregate(aggregationArgs);
 
       const sql = `SELECT SUM(total_amount) as total_spend, COUNT(*) as invoice_count FROM "Invoice"${
         days > 0
@@ -85,16 +87,16 @@ async function handleQueryFallback(query: string): Promise<any> {
         sql,
         results: [
           {
-            total_spend: result._sum.totalAmount || 0,
-            invoice_count: result._count.id,
+            total_spend: result._sum?.totalAmount || 0,
+            invoice_count: result._count || 0,
           },
         ],
         answer: `Total spend in ${timeText} is €${(
-          result._sum.totalAmount || 0
+          result._sum?.totalAmount || 0
         ).toLocaleString("de-DE", {
           minimumFractionDigits: 2,
         })} across ${
-          result._count.id
+          result._count || 0
         } invoices (using fast database query).`,
       };
     }
@@ -102,6 +104,7 @@ async function handleQueryFallback(query: string): Promise<any> {
     // Latest invoices
     if (lowerQuery.includes("latest") && lowerQuery.includes("invoices")) {
       const latestInvoices = await prisma.invoice.findMany({
+        where: { invoiceDate: { not: null } },
         include: { vendor: { select: { name: true } } },
         orderBy: { invoiceDate: "desc" },
         take: 5,

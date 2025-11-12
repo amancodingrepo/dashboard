@@ -29,14 +29,14 @@ export function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
-  // Use relative URL since frontend and API are on the same Vercel deployment
+  // Get the appropriate API URL based on environment
   const getApiUrl = () => {
     // In production, use relative path (same domain)
-    if (typeof window !== 'undefined' && window.location.origin) {
+    if (process.env.NODE_ENV === 'production') {
       return '' // Empty string means relative to current origin
     }
-    // Fallback for SSR or development
-    return process.env.NEXT_PUBLIC_API_URL || ''
+    // In development, use the configured API URL or default to localhost:4001
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'
   }
 
   const scrollToBottom = () => {
@@ -62,9 +62,18 @@ export function ChatInterface() {
 
     try {
       const apiBase = getApiUrl()
-      const apiPath = apiBase ? `${apiBase}/api/chat-with-data` : '/api/chat-with-data'
+      const apiPath = `${apiBase}${apiBase.endsWith('/') ? '' : '/'}api/chat-with-data`
+      
+      console.log('Sending request to:', apiPath) // Debug log
+      
       const response = await axios.post(apiPath, {
         query: input,
+      }, {
+        timeout: 30000, // 30 second timeout
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
       })
 
       const assistantMessage: Message = {
@@ -81,16 +90,42 @@ export function ChatInterface() {
       let errorMessage = 'Sorry, I encountered an error processing your request.'
       let errorDetail = 'API Error'
       
-      if (error.response?.data?.error) {
-        errorDetail = error.response.data.error
+      // Handle different types of errors
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        // that falls out of the range of 2xx
+        console.error('Response data:', error.response.data)
+        console.error('Response status:', error.response.status)
+        console.error('Response headers:', error.response.headers)
+        
+        errorDetail = error.response.data?.error || 
+                     error.response.data?.message || 
+                     `HTTP ${error.response.status}`
+      } else if (error.request) {
+        // The request was made but no response was received
+        console.error('No response received:', error.request)
+        errorDetail = 'No response from server'
+      } else if (error.code === 'ECONNABORTED') {
+        errorMessage = 'Request timed out. The server is taking too long to respond.'
+        errorDetail = 'Request Timeout'
+      } else if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+        errorMessage = 'Unable to connect to the AI service. Please check if the service is running.'
+        errorDetail = 'Connection Error'
       } else if (error.message) {
+        // Something happened in setting up the request that triggered an Error
         errorDetail = error.message
       }
       
-      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
-        errorMessage = 'Unable to connect to the AI service. Please check if the service is running.'
-        errorDetail = 'Connection Error'
-      }
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        config: {
+          url: error.config?.url,
+          method: error.config?.method,
+          timeout: error.config?.timeout,
+        },
+        stack: error.stack,
+      })
       
       setMessages((prev) => [
         ...prev,

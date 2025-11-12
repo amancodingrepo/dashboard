@@ -1,4 +1,4 @@
-// File: C:\Users\Asus\Desktop\flowbit-app-final-groq\apps\web\app\layout.tsx
+// File: c:\Users\Asus\Desktop\flowbit-app-final-groq\apps\web\app\layout.tsx
 import * as entry from '../../../app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
