@@ -59,12 +59,15 @@ export function ChatInterface() {
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setIsLoading(true)
+    
+    // Debug log
+    console.log('Sending chat request for query:', input)
 
     try {
       const apiBase = getApiUrl()
       const apiPath = `${apiBase}${apiBase.endsWith('/') ? '' : '/'}api/chat-with-data`
       
-      console.log('Sending request to:', apiPath) // Debug log
+      console.log('API Request URL:', apiPath) // Debug log
       
       const response = await axios.post(apiPath, {
         query: input,
@@ -75,7 +78,9 @@ export function ChatInterface() {
           'Cache-Control': 'no-cache',
         },
       })
-
+      
+      console.log('API Response:', response.data) // Debug log
+      
       const assistantMessage: Message = {
         role: 'assistant',
         content: response.data.answer || 'I found some results for your query.',
@@ -90,21 +95,35 @@ export function ChatInterface() {
       let errorMessage = 'Sorry, I encountered an error processing your request.'
       let errorDetail = 'API Error'
       
+      // Log detailed error information
+      const errorDetails = {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        url: error.config?.url,
+        method: error.config?.method,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      }
+      
+      console.error('Error details:', errorDetails)
+      
       // Handle different types of errors
       if (error.response) {
-        // The request was made and the server responded with a status code
-        // that falls out of the range of 2xx
-        console.error('Response data:', error.response.data)
-        console.error('Response status:', error.response.status)
-        console.error('Response headers:', error.response.headers)
-        
+        // Server responded with error status
         errorDetail = error.response.data?.error || 
                      error.response.data?.message || 
                      `HTTP ${error.response.status}`
+        
+        if (error.response.status === 404) {
+          errorMessage = 'The requested resource was not found.'
+        } else if (error.response.status === 500) {
+          errorMessage = 'Server error. Please try again later.'
+          errorDetail = error.response.data?.error || 'Internal Server Error'
+        }
       } else if (error.request) {
-        // The request was made but no response was received
-        console.error('No response received:', error.request)
-        errorDetail = 'No response from server'
+        // No response received
+        errorMessage = 'No response from the server. Please check your connection.'
+        errorDetail = 'No Response'
       } else if (error.code === 'ECONNABORTED') {
         errorMessage = 'Request timed out. The server is taking too long to respond.'
         errorDetail = 'Request Timeout'
@@ -112,20 +131,8 @@ export function ChatInterface() {
         errorMessage = 'Unable to connect to the AI service. Please check if the service is running.'
         errorDetail = 'Connection Error'
       } else if (error.message) {
-        // Something happened in setting up the request that triggered an Error
         errorDetail = error.message
       }
-      
-      console.error('Error details:', {
-        message: error.message,
-        code: error.code,
-        config: {
-          url: error.config?.url,
-          method: error.config?.method,
-          timeout: error.config?.timeout,
-        },
-        stack: error.stack,
-      })
       
       setMessages((prev) => [
         ...prev,

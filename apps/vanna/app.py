@@ -23,10 +23,18 @@ def get_groq_client():
         if not groq_api_key:
             raise ValueError("GROQ_API_KEY environment variable is not set")
         try:
+            # Initialize Groq client without any proxies
             groq_client = Groq(api_key=groq_api_key)
+            # Test the connection
+            groq_client.chat.completions.create(
+                messages=[{"role": "user", "content": "Test"}],
+                model=groq_model,
+                max_tokens=1
+            )
         except Exception as e:
             print(f"Groq client initialization error: {e}")
-            raise e
+            groq_client = None  # Reset client to allow retry
+            raise ValueError(f"Failed to initialize Groq client: {str(e)}")
     return groq_client
 
 # Database connection
@@ -98,14 +106,20 @@ def generate_sql():
         data = request.get_json()
         question = data.get('question')
         
-        if not question:
-            return jsonify({"error": "Question is required", "success": False}), 400
+        if not question or not question.strip():
+            return jsonify({
+                "error": "Question is required and cannot be empty",
+                "success": False
+            }), 400
         
         if not groq_api_key:
             return jsonify({
                 "error": "GROQ_API_KEY not configured. Please set the GROQ_API_KEY environment variable.",
                 "success": False
             }), 503
+            
+        # Log the incoming request for debugging
+        print(f"Received question: {question[:100]}..." if len(question) > 100 else f"Received question: {question}")
         
         # Generate SQL using Groq
         prompt = f"""You are a SQL expert. Given the following database schema and a natural language question, generate a valid PostgreSQL query.
