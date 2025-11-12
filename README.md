@@ -159,6 +159,24 @@ The Express API is automatically deployed as Vercel serverless functions alongsi
    GROQ_MODEL=mixtral-8x7b-32768
    ```
 
+### Docker (Production)
+
+1. Copy `.env.production` and fill in production secrets (database, Groq key, JWT secret).
+2. Build and start the hardened stack:
+   ```bash
+   docker compose -f docker-compose.prod.yml up --build -d
+   ```
+3. Verify health:
+   ```bash
+   docker compose -f docker-compose.prod.yml logs api --tail 20
+   docker compose -f docker-compose.prod.yml logs vanna --tail 20
+   docker compose -f docker-compose.prod.yml logs web --tail 20
+   ```
+4. Run Prisma migrations once the stack is up:
+   ```bash
+   docker compose -f docker-compose.prod.yml exec api npx prisma migrate deploy
+   ```
+
 ### Database (Supabase/Railway/Neon)
 
 1. Create a PostgreSQL database

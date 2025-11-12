@@ -145,38 +145,47 @@ SQL Query:"""
         
         # Execute SQL and get results
         conn = get_db_connection()
+        conn.autocommit = True
         cursor = conn.cursor()
         
         try:
             cursor.execute(sql)
             
-            # Get column names
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
-            
-            # Fetch results
-            rows = cursor.fetchall()
-            
-            # Convert to list of dicts
+            has_result_set = cursor.description is not None
+            rows_affected = cursor.rowcount if cursor.rowcount != -1 else None
             results = []
-            for row in rows:
-                result_dict = {}
-                for i, col in enumerate(columns):
-                    value = row[i]
-                    # Convert to JSON-serializable types
-                    if hasattr(value, 'isoformat'):  # datetime
-                        value = value.isoformat()
-                    result_dict[col] = value
-                results.append(result_dict)
+            
+            if has_result_set:
+                columns = [desc[0] for desc in cursor.description]
+                rows = cursor.fetchall()
+                
+                for row in rows:
+                    result_dict = {}
+                    for i, col in enumerate(columns):
+                        value = row[i]
+                        if hasattr(value, 'isoformat'):
+                            value = value.isoformat()
+                        result_dict[col] = value
+                    results.append(result_dict)
+            else:
+                # For statements like CREATE/UPDATE/DELETE, no result set is returned
+                rows = []
             
             cursor.close()
             conn.close()
             
-            return jsonify({
+            response_payload = {
                 "question": question,
                 "sql": sql,
                 "results": results,
                 "success": True
-            })
+            }
+            
+            if not has_result_set:
+                response_payload["rows_affected"] = rows_affected
+                response_payload["message"] = "Query executed successfully."
+            
+            return jsonify(response_payload)
             
         except Exception as db_error:
             cursor.close()

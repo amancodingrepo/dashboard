@@ -58,7 +58,14 @@ async function seedDatabase() {
     await prisma.invoice.deleteMany();
     await prisma.vendor.deleteMany();
     await prisma.customer.deleteMany();
-    await prisma.chatHistory.deleteMany();
+
+    // Only clear chat history if the table exists
+    try {
+      await prisma.chatHistory.deleteMany();
+    } catch (error) {
+      console.log('⚠️  ChatHistory table not found, skipping...');
+    }
+
     await prisma.analytics.deleteMany();
 
     // Seed vendors

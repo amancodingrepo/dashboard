@@ -41,6 +41,15 @@ app.use((0, pino_http_1.default)({ logger }));
 // Body parsing middleware
 app.use(express_1.default.json({ limit: '10kb' }));
 app.use(express_1.default.urlencoded({ extended: true, limit: '10kb' }));
+// Debug endpoint to test API is working (must be before main routes)
+app.get('/api/test', (req, res) => {
+    res.json({ message: 'API is working', timestamp: new Date().toISOString() });
+});
+// Debug: Log all registered routes
+app.use('/api', (req, res, next) => {
+    console.log(`API Request: ${req.method} ${req.path}`);
+    next();
+});
 // Routes
 app.use('/api', index_1.default);
 // Health check endpoint
@@ -108,4 +117,6 @@ process.on('SIGTERM', () => {
         logger.info('Process terminated');
     });
 });
+// Export for Vercel
+exports.default = app;
 //# sourceMappingURL=index.js.map

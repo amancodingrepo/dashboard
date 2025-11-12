@@ -81,7 +81,6 @@ router.get('/vendors/top10', async (req, res) => {
             },
             take: 10,
         });
-        // Get vendor details
         const vendorIds = vendorSpend
             .map((v) => v.vendorId)
             .filter((id) => id !== null);
@@ -97,12 +96,14 @@ router.get('/vendors/top10', async (req, res) => {
         });
         const vendorMap = new Map(vendors.map((v) => [v.id, v]));
         const result = vendorSpend
+            .filter((v) => v.vendorId !== null)
             .map((v) => {
+            var _a;
             const vendor = vendorMap.get(v.vendorId);
             return {
                 vendorId: v.vendorId,
                 vendorName: (vendor === null || vendor === void 0 ? void 0 : vendor.name) || 'Unknown Vendor',
-                totalSpend: v._sum.totalAmount || 0,
+                totalSpend: (_a = v._sum.totalAmount) !== null && _a !== void 0 ? _a : 0,
                 invoiceCount: v._count.id,
             };
         })
