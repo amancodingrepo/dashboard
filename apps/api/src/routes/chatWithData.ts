@@ -95,19 +95,44 @@ async function handleQueryFallback(query: string): Promise<any> {
   }
 }
 router.post("/", async (req, res) => {
-  console.log('Chat with data endpoint hit:', req.body);
-  const { query } = req.body;
-  if (!query) return res.status(400).json({ error: "query required" });
+  try {
+    console.log('Chat with data endpoint hit:', req.body);
+    const { query } = req.body;
+    if (!query) return res.status(400).json({ error: "query required" });
   
   // Check if Vanna service is configured
   const vanna_base_url = process.env.VANNA_API_BASE_URL;
   console.log('VANNA_API_BASE_URL:', vanna_base_url ? 'Set' : 'Not set');
   
   if (!vanna_base_url) {
-    console.log('Vanna AI service not configured, returning error');
-    return res.status(503).json({
-      error: "Vanna AI service not configured. Please set VANNA_API_BASE_URL environment variable.",
-      answer: "The AI service is not available. Please contact your administrator.",
+    console.log('Vanna AI service not configured, trying fallback');
+    try {
+      const fallbackResult = await handleQueryFallback(query);
+      
+      if (fallbackResult) {
+        console.log('Fallback successful for missing Vanna config');
+        return res.json({
+          answer: fallbackResult.answer,
+          sql: fallbackResult.sql,
+          results: fallbackResult.results,
+          success: fallbackResult.success
+        });
+      }
+    } catch (fallbackError) {
+      console.error('Fallback query failed:', fallbackError);
+      return res.status(200).json({
+        error: "Database connection error",
+        answer: "Unable to connect to the database. Please try again later or contact support.",
+        sql: null,
+        results: [],
+        success: false
+      });
+    }
+    
+    // No fallback available, return helpful error
+    return res.status(200).json({
+      error: "AI service not configured and no fallback available for this query.",
+      answer: "The AI service is not available. Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.",
       sql: null,
       results: [],
       success: false
@@ -196,6 +221,16 @@ router.post("/", async (req, res) => {
     res.status(500).json({ 
       error: errorMsg,
       answer: userMessage,
+      sql: null,
+      results: [],
+      success: false
+    });
+  }
+  } catch (outerError: any) {
+    console.error('Unhandled error in chat-with-data endpoint:', outerError);
+    res.status(500).json({
+      error: "Internal server error",
+      answer: "An unexpected error occurred. Please try again later.",
       sql: null,
       results: [],
       success: false

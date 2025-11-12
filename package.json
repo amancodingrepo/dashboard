@@ -1,7 +1,60 @@
 {
+  "name": "flowbit-analytics",
+  "version": "1.0.0",
+  "description": "A comprehensive data analytics platform with AI-powered natural language querying",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:vanna\"",
+    "dev:web": "cd apps/web && npm run dev",
+    "dev:api": "cd apps/api && npm run dev",
+    "dev:vanna": "cd apps/vanna && python app.py",
+    "build": "npm run build:web && npm run build:api",
+    "build:web": "cd apps/web && npm run build",
+    "build:api": "cd apps/api && npm run build",
+    "start": "npm run start:api",
+    "start:api": "cd apps/api && npm run start",
+    "lint": "cd apps/web && npm run lint && cd ../api && npm run lint",
+    "type-check": "cd apps/web && npm run type-check && cd ../api && npm run type-check",
+    "test": "cd apps/api && npm test",
+    "test:integration": "cd apps/api && npm run test:integration",
+    "test:e2e": "cd apps/web && npm run test:e2e",
+    "test:coverage": "cd apps/api && npm run test:coverage",
+    "migrate": "npx prisma migrate dev",
+    "migrate:deploy": "npx prisma migrate deploy",
+    "seed": "npx tsx scripts/seed-database.ts",
+    "db:reset": "npx prisma migrate reset --force",
+    "db:studio": "npx prisma studio",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "install:all": "npm install && cd apps/web && npm install && cd ../api && npm install && cd ../vanna && pip install -r requirements.txt"
+  },
+  "keywords": [
+    "analytics",
+    "dashboard",
+    "ai",
+    "vanna",
+    "groq",
+    "nextjs",
+    "express",
+    "postgresql",
+    "typescript"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/flowbit-analytics.git"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
   "devDependencies": {
     "@types/node": "^24.10.0",
-    "prisma": "^6.19.0"
+    "prisma": "^6.19.0",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.20.6"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

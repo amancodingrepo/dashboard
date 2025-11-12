@@ -28,8 +28,8 @@ export function ChatInterface() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  // Always use current origin to avoid CORS issues with multiple deployments
-  const apiUrl = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001')
+  // Use relative URL since we have proxy configured in next.config.js
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

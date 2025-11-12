@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "name": "flowbit-analytics",
   "builds": [
     {
       "src": "apps/web/package.json",
@@ -19,6 +20,14 @@
       "src": "/(.*)",
       "dest": "apps/web/$1"
     }
-  ]
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "functions": {
+    "apps/api/src/index.ts": {
+      "maxDuration": 30
+    }
+  }
 }
 
