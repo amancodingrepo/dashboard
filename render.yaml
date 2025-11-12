@@ -1,9 +1,10 @@
 services:
   - type: web
-    name: vanna-ai-service
+    name: flowbit-vanna-ai
     env: python
     region: oregon
     plan: free
+    rootDir: vanna
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
     envVars:
