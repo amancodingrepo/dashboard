@@ -123,6 +123,23 @@ router.post("/", async (req, res) => {
     
     // Map Vanna response to frontend expected format
     const vannaData = resp.data;
+    
+    // If Vanna service returned an error, try fallback
+    if (!vannaData.success) {
+      console.log('Vanna returned error, trying fallback:', vannaData.error);
+      const fallbackResult = await handleQueryFallback(query);
+      
+      if (fallbackResult) {
+        console.log('Fallback successful for Vanna error');
+        return res.json({
+          answer: fallbackResult.answer,
+          sql: fallbackResult.sql,
+          results: fallbackResult.results,
+          success: fallbackResult.success
+        });
+      }
+    }
+    
     const response = {
       answer: vannaData.success ? 
         `I found ${vannaData.results?.length || 0} results for your query.` : 
@@ -166,6 +183,9 @@ router.post("/", async (req, res) => {
     } else if (e.code === 'ECONNREFUSED' || e.code === 'ENOTFOUND') {
       errorMsg = `Cannot connect to Vanna AI service: ${e.message}`;
       userMessage = "The AI service is currently unavailable. Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.";
+    } else if (e.response?.status === 500) {
+      errorMsg = `Vanna AI service error (${e.response.status}): ${e.response?.data?.error || e.message}`;
+      userMessage = "The AI service has an internal error. Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.";
     } else if (e.response?.status) {
       errorMsg = `Vanna AI service error (${e.response.status}): ${e.response?.data?.error || e.message}`;
       userMessage = "The AI service returned an error. Please try again.";
