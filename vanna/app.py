@@ -24,12 +24,9 @@ def get_groq_client():
             raise ValueError("GROQ_API_KEY environment variable is not set")
         try:
             groq_client = Groq(api_key=groq_api_key)
-        except TypeError as e:
-            # Handle version compatibility issues
-            if "proxies" in str(e):
-                groq_client = Groq(api_key=groq_api_key)
-            else:
-                raise e
+        except Exception as e:
+            print(f"Groq client initialization error: {e}")
+            raise e
     return groq_client
 
 # Database connection
