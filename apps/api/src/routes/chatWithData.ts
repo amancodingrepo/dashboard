@@ -3,10 +3,26 @@ import axios from "axios";
 import dotenv from "dotenv";
 import { prisma } from "../lib/prisma";
 import { Prisma } from "@prisma/client";
+import { Request, Response } from "express";
+
 dotenv.config();
 const router = Router();
 
-// Fallback queries for common requests when Vanna is slow
+// Get Vanna API URL from environment or use default
+const VANNA_API_BASE_URL = process.env.VANNA_API_BASE_URL || 'https://van-1a6s.onrender.com';
+const VANNA_API_KEY = process.env.VANNA_API_KEY || '';
+
+// Create axios instance for Vanna API
+const vannaApi = axios.create({
+  baseURL: VANNA_API_BASE_URL,
+  timeout: 30000, // 30 seconds
+  headers: {
+    'Content-Type': 'application/json',
+    ...(VANNA_API_KEY && { 'Authorization': `Bearer ${VANNA_API_KEY}` })
+  }
+});
+
+// Fallback queries for common requests when Vanna is not available
 async function handleQueryFallback(query: string): Promise<any> {
   const lowerQuery = query.toLowerCase();
 
@@ -423,4 +439,72 @@ router.post("/", async (req, res) => {
     });
   }
 });
+// Chat with data endpoint
+router.post('/', async (req: Request, res: Response) => {
+  const { query } = req.body;
+  
+  if (!query) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Query is required' 
+    });
+  }
+
+  try {
+    // First try to use Vanna AI service if available
+    try {
+      const response = await vannaApi.post('/generate-sql', { question: query });
+      
+      if (response.data && response.data.success) {
+        return res.json({
+          success: true,
+          answer: response.data.answer,
+          sql: response.data.sql,
+          results: response.data.results,
+          source: 'vanna-ai'
+        });
+      }
+    } catch (vannaError) {
+      console.error('Vanna AI service error:', vannaError?.response?.data || vannaError.message);
+      // Continue to fallback if Vanna fails
+    }
+
+    // Fallback to direct database queries for common requests
+    const fallbackResult = await handleQueryFallback(query);
+    
+    if (fallbackResult) {
+      return res.json({
+        ...fallbackResult,
+        source: 'fallback-query'
+      });
+    }
+
+    // If no fallback was available
+    return res.status(404).json({
+      success: false,
+      error: 'No suitable response could be generated for your query.',
+      suggestion: 'Try rephrasing your question or ask about top vendors, total spend, or overdue invoices.'
+    });
+
+  } catch (error: any) {
+    console.error('Chat with data error:', error);
+    
+    // Handle database connection errors
+    if (error.code === 'P1001' || error.message?.includes('connect')) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database connection error',
+        message: 'Unable to connect to the database. Please try again later.'
+      });
+    }
+
+    // Handle other errors
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: error.message || 'An unexpected error occurred'
+    });
+  }
+});
+
 export default router;
