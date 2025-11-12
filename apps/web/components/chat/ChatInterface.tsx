@@ -28,8 +28,16 @@ export function ChatInterface() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  // Use relative URL since we have proxy configured in next.config.js
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''
+  
+  // Use relative URL since frontend and API are on the same Vercel deployment
+  const getApiUrl = () => {
+    // In production, use relative path (same domain)
+    if (typeof window !== 'undefined' && window.location.origin) {
+      return '' // Empty string means relative to current origin
+    }
+    // Fallback for SSR or development
+    return process.env.NEXT_PUBLIC_API_URL || ''
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -53,7 +61,9 @@ export function ChatInterface() {
     setIsLoading(true)
 
     try {
-      const response = await axios.post(`${apiUrl}/api/chat-with-data`, {
+      const apiBase = getApiUrl()
+      const apiPath = apiBase ? `${apiBase}/api/chat-with-data` : '/api/chat-with-data'
+      const response = await axios.post(apiPath, {
         query: input,
       })
 
@@ -131,34 +141,50 @@ export function ChatInterface() {
                   </div>
                 )}
 
-                {message.results && message.results.length > 0 && (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="min-w-full border border-custom-slate-200 text-xs">
+                {message.results && Array.isArray(message.results) && message.results.length > 0 && (
+                  <div className="mt-3 overflow-x-auto rounded-lg border border-custom-slate-200">
+                    <table className="min-w-full border-collapse text-xs">
                       <thead className="bg-custom-slate-50">
                         <tr>
-                          {Object.keys(message.results[0]).map((key) => (
+                          {Object.keys(message.results[0] || {}).map((key) => (
                             <th
                               key={key}
-                              className="border border-custom-slate-200 px-2 py-1 text-left font-medium text-custom-slate-600 uppercase"
+                              className="border border-custom-slate-200 px-3 py-2 text-left font-semibold text-custom-slate-700 uppercase tracking-wide"
                             >
-                              {key}
+                              {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             </th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="bg-white">
                         {message.results.map((row, i) => (
-                          <tr key={i}>
-                            {Object.values(row).map((val: any, j) => (
-                              <td
-                                key={j}
-                                className="border border-custom-slate-200 px-2 py-1 text-custom-slate-700"
-                              >
-                                {typeof val === 'object'
-                                  ? JSON.stringify(val)
-                                  : String(val)}
-                              </td>
-                            ))}
+                          <tr key={i} className="hover:bg-custom-slate-50 transition-colors">
+                            {Object.values(row || {}).map((val: any, j) => {
+                              // Format the value for display
+                              let displayValue = val;
+                              if (val === null || val === undefined) {
+                                displayValue = '-';
+                              } else if (typeof val === 'number') {
+                                // Format large numbers with commas
+                                displayValue = val.toLocaleString('en-US', {
+                                  minimumFractionDigits: val % 1 !== 0 ? 2 : 0,
+                                  maximumFractionDigits: 2
+                                });
+                              } else if (typeof val === 'object') {
+                                displayValue = JSON.stringify(val);
+                              } else {
+                                displayValue = String(val);
+                              }
+                              
+                              return (
+                                <td
+                                  key={j}
+                                  className="border border-custom-slate-200 px-3 py-2 text-custom-slate-700"
+                                >
+                                  {displayValue}
+                                </td>
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>
