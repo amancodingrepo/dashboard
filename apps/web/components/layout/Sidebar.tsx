@@ -26,7 +26,7 @@ export function Sidebar() {
             alt="Company Logo"
             className="h-8 w-8 object-contain"
             onError={(e) => {
-              e.currentTarget.src = 'https://via.placeholder.com/32x32/4338CA/FFFFFF?text=B'
+              e.currentTarget.src = 'https://ui-avatars.com/api/?name=Buchhaltung&size=32&background=4338CA&color=fff&bold=true'
             }}
           />
           <div>
