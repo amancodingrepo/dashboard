@@ -9,7 +9,7 @@ import json
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=['*'], methods=['GET', 'POST', 'OPTIONS'], allow_headers=['Content-Type', 'Authorization'])
 
 # Initialize Groq client lazily
 groq_api_key = os.getenv('GROQ_API_KEY')

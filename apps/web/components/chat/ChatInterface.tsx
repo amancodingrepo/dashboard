@@ -28,7 +28,7 @@ export function ChatInterface() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4001')
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -65,14 +65,28 @@ export function ChatInterface() {
       }
 
       setMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Chat error:', error)
+      let errorMessage = 'Sorry, I encountered an error processing your request.'
+      let errorDetail = 'API Error'
+      
+      if (error.response?.data?.error) {
+        errorDetail = error.response.data.error
+      } else if (error.message) {
+        errorDetail = error.message
+      }
+      
+      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+        errorMessage = 'Unable to connect to the AI service. Please check if the service is running.'
+        errorDetail = 'Connection Error'
+      }
+      
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: 'Sorry, I encountered an error processing your request.',
-          error: 'API Error',
+          content: errorMessage,
+          error: errorDetail,
         },
       ])
     } finally {
