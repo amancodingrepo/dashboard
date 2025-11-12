@@ -6,14 +6,17 @@
       "use": "@vercel/next"
     },
     {
-      "src": "apps/api/src/index.ts",
-      "use": "@vercel/node"
+      "src": "apps/api/package.json",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["src/**", "dist/**"]
+      }
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "apps/api/src/index.ts"
+      "dest": "apps/api/dist/index.js"
     },
     {
       "src": "/(.*)",
