@@ -44,6 +44,20 @@ Relationships:
 - LineItem.document_id -> Document.id
 """
 
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        "service": "Vanna AI Backend",
+        "status": "✅ Running successfully on Render",
+        "python_version": "3.12",
+        "endpoints": {
+            "health": "/health",
+            "generate_sql": "/generate-sql (POST)",
+            "train": "/train (POST)"
+        },
+        "message": "Vanna AI service is live and ready to generate SQL from natural language!"
+    })
+
 @app.route('/health', methods=['GET'])
 def health():
     try:
