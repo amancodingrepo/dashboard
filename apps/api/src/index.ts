@@ -42,6 +42,11 @@ app.use(pinoHttp({ logger }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
+// Debug endpoint to test API is working (must be before main routes)
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'API is working', timestamp: new Date().toISOString() });
+});
+
 // Debug: Log all registered routes
 app.use('/api', (req, res, next) => {
   console.log(`API Request: ${req.method} ${req.path}`);
@@ -50,11 +55,6 @@ app.use('/api', (req, res, next) => {
 
 // Routes
 app.use('/api', routes);
-
-// Debug endpoint to test API is working
-app.get('/api/test', (req, res) => {
-  res.json({ message: 'API is working', timestamp: new Date().toISOString() });
-});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
