@@ -4,6 +4,7 @@ import invoicesRouter from './invoices';
 import analyticsRouter from './analytics';
 import dashboardRouter from './dashboard';
 import chatRouter from './chat';
+import chatWithDataRouter from './chatWithData';
 import exportRouter from './export';
 
 const router = Router();
@@ -14,6 +15,7 @@ router.use('/invoices', invoicesRouter);
 router.use('/analytics', analyticsRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/export', exportRouter);
+router.use('/chat-with-data', chatWithDataRouter);
 router.use('/', chatRouter);
 
 // API version info
