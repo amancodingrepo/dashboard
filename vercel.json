@@ -6,25 +6,19 @@
       "use": "@vercel/next"
     },
     {
-      "src": "apps/api/package.json",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["src/**", "dist/**"]
-      }
+      "src": "apps/api/src/index.ts",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "apps/api/dist/index.js"
+      "dest": "apps/api/src/index.ts"
     },
     {
       "src": "/(.*)",
       "dest": "apps/web/$1"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  ]
 }
 
