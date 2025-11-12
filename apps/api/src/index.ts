@@ -114,3 +114,6 @@ process.on('SIGTERM', () => {
     logger.info('Process terminated');
   });
 });
+
+// Export for Vercel
+export default app;
