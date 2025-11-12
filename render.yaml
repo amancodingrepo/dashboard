@@ -2,6 +2,7 @@ services:
   - type: web
     name: flowbit-vanna-ai
     env: python
+    runtime: python-3.12.7
     region: oregon
     plan: free
     rootDir: vanna
