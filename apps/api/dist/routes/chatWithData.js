@@ -11,26 +11,28 @@ dotenv_1.default.config();
 const router = (0, express_1.Router)();
 // Fallback queries for common requests when Vanna is slow
 async function handleQueryFallback(query) {
-    var _a;
+    var _a, _b, _c;
     const lowerQuery = query.toLowerCase();
     try {
         // Top vendors by spend
-        if (lowerQuery.includes('top') && lowerQuery.includes('vendor')) {
-            const limit = parseInt(((_a = lowerQuery.match(/\d+/)) === null || _a === void 0 ? void 0 : _a[0]) || '5');
+        if (lowerQuery.includes("top") && lowerQuery.includes("vendor")) {
+            const limit = parseInt(((_a = lowerQuery.match(/\d+/)) === null || _a === void 0 ? void 0 : _a[0]) || "5");
             const vendorSpend = await prisma_1.prisma.invoice.groupBy({
-                by: ['vendorId'],
+                by: ["vendorId"],
                 _sum: { totalAmount: true },
                 _count: { id: true },
-                orderBy: { _sum: { totalAmount: 'desc' } },
+                orderBy: { _sum: { totalAmount: "desc" } },
                 take: limit,
             });
-            const vendorIds = vendorSpend.map(v => v.vendorId).filter(id => id !== null);
+            const vendorIds = vendorSpend
+                .map((v) => v.vendorId)
+                .filter((id) => id !== null);
             const vendors = await prisma_1.prisma.vendor.findMany({
                 where: { id: { in: vendorIds } },
             });
-            const vendorMap = new Map(vendors.map(v => [v.id, v.name]));
-            const results = vendorSpend.map(v => ({
-                vendor_name: vendorMap.get(v.vendorId) || 'Unknown',
+            const vendorMap = new Map(vendors.map((v) => [v.id, v.name]));
+            const results = vendorSpend.map((v) => ({
+                vendor_name: vendorMap.get(v.vendorId) || "Unknown",
                 total_spend: v._sum.totalAmount || 0,
                 invoice_count: v._count.id,
             }));
@@ -42,7 +44,7 @@ async function handleQueryFallback(query) {
             };
         }
         // Total spend queries
-        if (lowerQuery.includes('total') && lowerQuery.includes('spend')) {
+        if (lowerQuery.includes("total") && lowerQuery.includes("spend")) {
             const result = await prisma_1.prisma.invoice.aggregate({
                 _sum: { totalAmount: true },
                 _count: { id: true },
@@ -50,29 +52,31 @@ async function handleQueryFallback(query) {
             return {
                 success: true,
                 sql: `SELECT SUM(total_amount) as total_spend, COUNT(*) as invoice_count FROM "Invoice";`,
-                results: [{
+                results: [
+                    {
                         total_spend: result._sum.totalAmount || 0,
                         invoice_count: result._count.id,
-                    }],
-                answer: `Total spend is €${(result._sum.totalAmount || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })} across ${result._count.id} invoices (using fast database query).`,
+                    },
+                ],
+                answer: `Total spend is €${(result._sum.totalAmount || 0).toLocaleString("de-DE", { minimumFractionDigits: 2 })} across ${result._count.id} invoices (using fast database query).`,
             };
         }
         // Overdue invoices
-        if (lowerQuery.includes('overdue')) {
+        if (lowerQuery.includes("overdue")) {
             const overdueInvoices = await prisma_1.prisma.invoice.findMany({
                 where: {
                     paymentDueDate: { lt: new Date() },
-                    paymentStatus: { not: 'paid' },
+                    paymentStatus: { not: "paid" },
                 },
                 include: { vendor: { select: { name: true } } },
-                orderBy: { paymentDueDate: 'asc' },
+                orderBy: { paymentDueDate: "asc" },
                 take: 10,
             });
-            const results = overdueInvoices.map(inv => {
+            const results = overdueInvoices.map((inv) => {
                 var _a;
                 return ({
                     invoice_ref: inv.invoiceRef,
-                    vendor_name: ((_a = inv.vendor) === null || _a === void 0 ? void 0 : _a.name) || 'Unknown',
+                    vendor_name: ((_a = inv.vendor) === null || _a === void 0 ? void 0 : _a.name) || "Unknown",
                     amount: inv.totalAmount || 0,
                     due_date: inv.paymentDueDate,
                 });
@@ -87,42 +91,100 @@ async function handleQueryFallback(query) {
         return null; // No fallback available
     }
     catch (error) {
-        console.error('Fallback query error:', error);
+        console.error("Fallback query error:", error);
+        console.error("Error details:", {
+            message: error === null || error === void 0 ? void 0 : error.message,
+            code: error === null || error === void 0 ? void 0 : error.code,
+            name: error === null || error === void 0 ? void 0 : error.name,
+            stack: error === null || error === void 0 ? void 0 : error.stack,
+        });
+        // If it's a database connection error, throw it so it can be handled upstream
+        if ((error === null || error === void 0 ? void 0 : error.code) === "P1001" ||
+            ((_b = error === null || error === void 0 ? void 0 : error.message) === null || _b === void 0 ? void 0 : _b.includes("connect")) ||
+            ((_c = error === null || error === void 0 ? void 0 : error.message) === null || _c === void 0 ? void 0 : _c.includes("database"))) {
+            throw error;
+        }
         return null;
     }
 }
+// Helper function to format results for frontend
+function formatResults(results) {
+    if (!Array.isArray(results)) {
+        return [];
+    }
+    return results.map((row) => {
+        const formattedRow = {};
+        for (const [key, value] of Object.entries(row)) {
+            // Format dates
+            if (value instanceof Date) {
+                formattedRow[key] = value.toISOString().split("T")[0];
+            }
+            // Format numbers to 2 decimal places if they're floats
+            else if (typeof value === "number" && value % 1 !== 0) {
+                formattedRow[key] = parseFloat(value.toFixed(2));
+            }
+            // Keep other values as-is
+            else {
+                formattedRow[key] = value;
+            }
+        }
+        return formattedRow;
+    });
+}
 router.post("/", async (req, res) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
     try {
-        console.log('Chat with data endpoint hit:', req.body);
+        console.log("Chat with data endpoint hit:", req.body);
         const { query } = req.body;
-        if (!query)
-            return res.status(400).json({ error: "query required" });
+        if (!query || typeof query !== "string" || query.trim().length === 0) {
+            return res.status(400).json({
+                error: "query required",
+                answer: "Please provide a valid query.",
+                sql: null,
+                results: [],
+                success: false,
+            });
+        }
         // Check if Vanna service is configured
         const vanna_base_url = process.env.VANNA_API_BASE_URL;
-        console.log('VANNA_API_BASE_URL:', vanna_base_url ? 'Set' : 'Not set');
+        console.log("VANNA_API_BASE_URL:", vanna_base_url ? "Set" : "Not set");
         if (!vanna_base_url) {
-            console.log('Vanna AI service not configured, trying fallback');
+            console.log("Vanna AI service not configured, trying fallback");
             try {
-                const fallbackResult = await handleQueryFallback(query);
-                if (fallbackResult) {
-                    console.log('Fallback successful for missing Vanna config');
+                const fallbackResult = await handleQueryFallback(query.trim());
+                if (fallbackResult && fallbackResult.success) {
+                    console.log("Fallback successful for missing Vanna config");
                     return res.json({
                         answer: fallbackResult.answer,
                         sql: fallbackResult.sql,
-                        results: fallbackResult.results,
-                        success: fallbackResult.success
+                        results: formatResults(fallbackResult.results || []),
+                        success: true,
                     });
                 }
             }
             catch (fallbackError) {
-                console.error('Fallback query failed:', fallbackError);
+                console.error("Fallback query failed:", fallbackError);
+                console.error("Error details:", {
+                    message: fallbackError === null || fallbackError === void 0 ? void 0 : fallbackError.message,
+                    code: fallbackError === null || fallbackError === void 0 ? void 0 : fallbackError.code,
+                    name: fallbackError === null || fallbackError === void 0 ? void 0 : fallbackError.name,
+                    stack: fallbackError === null || fallbackError === void 0 ? void 0 : fallbackError.stack,
+                });
+                // Check if it's a database connection error
+                const isDbError = ((_a = fallbackError === null || fallbackError === void 0 ? void 0 : fallbackError.code) === null || _a === void 0 ? void 0 : _a.startsWith("P")) ||
+                    ((_b = fallbackError === null || fallbackError === void 0 ? void 0 : fallbackError.message) === null || _b === void 0 ? void 0 : _b.toLowerCase().includes("connect")) ||
+                    ((_c = fallbackError === null || fallbackError === void 0 ? void 0 : fallbackError.message) === null || _c === void 0 ? void 0 : _c.toLowerCase().includes("database")) ||
+                    ((_d = fallbackError === null || fallbackError === void 0 ? void 0 : fallbackError.message) === null || _d === void 0 ? void 0 : _d.toLowerCase().includes("prisma"));
                 return res.status(200).json({
-                    error: "Database connection error",
-                    answer: "Unable to connect to the database. Please try again later or contact support.",
+                    error: isDbError
+                        ? "Database connection error"
+                        : "Query processing error",
+                    answer: isDbError
+                        ? "Unable to connect to the database. Please check your database configuration and try again later."
+                        : "Unable to process your query. Please try again later or contact support.",
                     sql: null,
                     results: [],
-                    success: false
+                    success: false,
                 });
             }
             // No fallback available, return helpful error
@@ -131,99 +193,138 @@ router.post("/", async (req, res) => {
                 answer: "The AI service is not available. Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.",
                 sql: null,
                 results: [],
-                success: false
+                success: false,
             });
         }
         try {
             const vanna_url = vanna_base_url + "/generate-sql";
-            console.log('Calling Vanna:', vanna_url);
+            console.log("Calling Vanna:", vanna_url);
             // Try Vanna with shorter timeout first
             const resp = await axios_1.default.post(vanna_url, { question: query }, { timeout: 10000 });
             // Map Vanna response to frontend expected format
             const vannaData = resp.data;
             // If Vanna service returned an error, try fallback
             if (!vannaData.success) {
-                console.log('Vanna returned error, trying fallback:', vannaData.error);
+                console.log("Vanna returned error, trying fallback:", vannaData.error);
                 const fallbackResult = await handleQueryFallback(query);
-                if (fallbackResult) {
-                    console.log('Fallback successful for Vanna error');
+                if (fallbackResult && fallbackResult.success) {
+                    console.log("Fallback successful for Vanna error");
                     return res.json({
                         answer: fallbackResult.answer,
                         sql: fallbackResult.sql,
-                        results: fallbackResult.results,
-                        success: fallbackResult.success
+                        results: formatResults(fallbackResult.results || []),
+                        success: true,
                     });
                 }
             }
+            // Ensure results is always an array
+            const vannaResults = Array.isArray(vannaData.results)
+                ? vannaData.results
+                : [];
             const response = {
-                answer: vannaData.success ?
-                    `I found ${((_a = vannaData.results) === null || _a === void 0 ? void 0 : _a.length) || 0} results for your query.` :
-                    "I encountered an issue processing your request.",
-                sql: vannaData.sql,
-                results: vannaData.results || [],
-                error: vannaData.success ? null : (vannaData.error || "Unknown error"),
-                success: vannaData.success
+                answer: vannaData.success
+                    ? `I found ${vannaResults.length} result${vannaResults.length !== 1 ? "s" : ""} for your query.`
+                    : "I encountered an issue processing your request.",
+                sql: vannaData.sql || null,
+                results: formatResults(vannaResults),
+                error: vannaData.success ? null : vannaData.error || "Unknown error",
+                success: vannaData.success || false,
             };
             res.json(response);
         }
         catch (e) {
-            console.error('Vanna service error, trying fallback:', {
+            console.error("Vanna service error, trying fallback:", {
                 message: e.message,
                 code: e.code,
-                response: (_b = e.response) === null || _b === void 0 ? void 0 : _b.data,
-                status: (_c = e.response) === null || _c === void 0 ? void 0 : _c.status
+                response: (_e = e.response) === null || _e === void 0 ? void 0 : _e.data,
+                status: (_f = e.response) === null || _f === void 0 ? void 0 : _f.status,
             });
             // Try fallback for common queries when Vanna is slow/unavailable
-            console.log('Attempting fallback query for:', query);
-            const fallbackResult = await handleQueryFallback(query);
-            if (fallbackResult) {
-                console.log('Fallback successful');
-                return res.json({
-                    answer: fallbackResult.answer,
-                    sql: fallbackResult.sql,
-                    results: fallbackResult.results,
-                    success: fallbackResult.success
-                });
+            console.log("Attempting fallback query for:", query);
+            try {
+                const fallbackResult = await handleQueryFallback(query);
+                if (fallbackResult && fallbackResult.success) {
+                    console.log("Fallback successful");
+                    return res.json({
+                        answer: fallbackResult.answer,
+                        sql: fallbackResult.sql,
+                        results: formatResults(fallbackResult.results || []),
+                        success: true,
+                    });
+                }
+            }
+            catch (fallbackErr) {
+                console.error("Fallback query error:", fallbackErr);
             }
             // No fallback available, return error
             let errorMsg = "Unknown error";
             let userMessage = "The AI service is taking too long to respond. Please try a simpler query like 'Show top 5 vendors' or 'Total spend'.";
-            if (e.code === 'ECONNABORTED' || ((_d = e.message) === null || _d === void 0 ? void 0 : _d.includes('timeout'))) {
+            if (e.code === "ECONNABORTED" || ((_g = e.message) === null || _g === void 0 ? void 0 : _g.includes("timeout"))) {
                 errorMsg = `Vanna AI service timeout: ${e.message}`;
-                userMessage = "The AI service is taking too long (possibly waking up). Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.";
+                userMessage =
+                    "The AI service is taking too long (possibly waking up). Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.";
             }
-            else if (e.code === 'ECONNREFUSED' || e.code === 'ENOTFOUND') {
+            else if (e.code === "ECONNREFUSED" || e.code === "ENOTFOUND") {
                 errorMsg = `Cannot connect to Vanna AI service: ${e.message}`;
-                userMessage = "The AI service is currently unavailable. Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.";
+                userMessage =
+                    "The AI service is currently unavailable. Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.";
             }
-            else if (((_e = e.response) === null || _e === void 0 ? void 0 : _e.status) === 500) {
-                errorMsg = `Vanna AI service error (${e.response.status}): ${((_g = (_f = e.response) === null || _f === void 0 ? void 0 : _f.data) === null || _g === void 0 ? void 0 : _g.error) || e.message}`;
-                userMessage = "The AI service has an internal error. Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.";
-            }
-            else if ((_h = e.response) === null || _h === void 0 ? void 0 : _h.status) {
+            else if (((_h = e.response) === null || _h === void 0 ? void 0 : _h.status) === 500) {
                 errorMsg = `Vanna AI service error (${e.response.status}): ${((_k = (_j = e.response) === null || _j === void 0 ? void 0 : _j.data) === null || _k === void 0 ? void 0 : _k.error) || e.message}`;
+                userMessage =
+                    "The AI service has an internal error. Try asking: 'Show top vendors', 'Total spend', or 'Overdue invoices'.";
+            }
+            else if ((_l = e.response) === null || _l === void 0 ? void 0 : _l.status) {
+                errorMsg = `Vanna AI service error (${e.response.status}): ${((_o = (_m = e.response) === null || _m === void 0 ? void 0 : _m.data) === null || _o === void 0 ? void 0 : _o.error) || e.message}`;
                 userMessage = "The AI service returned an error. Please try again.";
             }
             else {
-                errorMsg = ((_m = (_l = e.response) === null || _l === void 0 ? void 0 : _l.data) === null || _m === void 0 ? void 0 : _m.detail) || ((_p = (_o = e.response) === null || _o === void 0 ? void 0 : _o.data) === null || _p === void 0 ? void 0 : _p.error) || e.message || String(e);
+                errorMsg =
+                    ((_q = (_p = e.response) === null || _p === void 0 ? void 0 : _p.data) === null || _q === void 0 ? void 0 : _q.detail) ||
+                        ((_s = (_r = e.response) === null || _r === void 0 ? void 0 : _r.data) === null || _s === void 0 ? void 0 : _s.error) ||
+                        e.message ||
+                        String(e);
             }
             res.status(500).json({
                 error: errorMsg,
                 answer: userMessage,
                 sql: null,
                 results: [],
-                success: false
+                success: false,
             });
         }
     }
     catch (outerError) {
-        console.error('Unhandled error in chat-with-data endpoint:', outerError);
+        console.error("Unhandled error in chat-with-data endpoint:", outerError);
+        console.error("Error stack:", outerError === null || outerError === void 0 ? void 0 : outerError.stack);
+        console.error("Error details:", {
+            message: outerError === null || outerError === void 0 ? void 0 : outerError.message,
+            name: outerError === null || outerError === void 0 ? void 0 : outerError.name,
+            code: outerError === null || outerError === void 0 ? void 0 : outerError.code,
+        });
+        // Try one more fallback attempt
+        try {
+            const finalFallback = await handleQueryFallback(((_t = req.body) === null || _t === void 0 ? void 0 : _t.query) || "");
+            if (finalFallback && finalFallback.success) {
+                return res.json({
+                    answer: finalFallback.answer,
+                    sql: finalFallback.sql,
+                    results: formatResults(finalFallback.results || []),
+                    success: true,
+                });
+            }
+        }
+        catch (finalErr) {
+            console.error("Final fallback also failed:", finalErr);
+        }
         res.status(500).json({
-            error: "Internal server error",
-            answer: "An unexpected error occurred. Please try again later.",
+            error: process.env.NODE_ENV === "production"
+                ? "Internal server error"
+                : (outerError === null || outerError === void 0 ? void 0 : outerError.message) || "An unexpected error occurred",
+            answer: "An unexpected error occurred. Please try again later or contact support.",
             sql: null,
             results: [],
-            success: false
+            success: false,
         });
     }
 });

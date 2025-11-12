@@ -20,7 +20,7 @@ export function ChatInterface() {
     {
       role: 'assistant',
       content:
-        "Hello! I can help you analyze your invoice and vendor data. Try asking questions like:\n\n• \"What's the total spend in the last 90 days?\"\n• \"List top 5 vendors by spend\"\n• \"Show overdue invoices\"",
+        "Hello! I can help you analyze your invoice and vendor data. Try asking questions like:\n\n• \"What's the total spend in the last 90 days?\"\n• \"List top 5 vendors by spend\"\n• \"Show overdue invoices\"\n• \"Show latest invoices\"",
       sql: null,
       results: null,
     },

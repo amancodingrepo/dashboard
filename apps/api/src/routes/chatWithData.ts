@@ -46,28 +46,80 @@ async function handleQueryFallback(query: string): Promise<any> {
 
     // Total spend queries
     if (lowerQuery.includes("total") && lowerQuery.includes("spend")) {
+      let days = 0;
+      let dateFilter: { gte?: Date } = {};
+      let timeText = "all time";
+
+      const daysMatch = lowerQuery.match(/last (\d+) days/);
+      if (daysMatch && daysMatch[1]) {
+        days = parseInt(daysMatch[1], 10);
+        timeText = `the last ${days} days`;
+      } else if (lowerQuery.includes("last month")) {
+        days = 30;
+        timeText = "the last month";
+      } else if (lowerQuery.includes("last year")) {
+        days = 365;
+        timeText = "the last year";
+      }
+
+      if (days > 0) {
+        const fromDate = new Date();
+        fromDate.setDate(fromDate.getDate() - days);
+        dateFilter.gte = fromDate;
+      }
+
       const result = await prisma.invoice.aggregate({
+        where: { invoiceDate: dateFilter },
         _sum: { totalAmount: true },
         _count: { id: true },
       });
 
+      const sql = `SELECT SUM(total_amount) as total_spend, COUNT(*) as invoice_count FROM "Invoice"${
+        days > 0
+          ? ` WHERE invoice_date >= NOW() - interval '${days} days'`
+          : ""
+      };`;
+
       return {
         success: true,
-        sql: `SELECT SUM(total_amount) as total_spend, COUNT(*) as invoice_count FROM "Invoice";`,
+        sql,
         results: [
           {
             total_spend: result._sum.totalAmount || 0,
             invoice_count: result._count.id,
           },
         ],
-        answer: `Total spend is €${(
+        answer: `Total spend in ${timeText} is €${(
           result._sum.totalAmount || 0
-        ).toLocaleString("de-DE", { minimumFractionDigits: 2 })} across ${
+        ).toLocaleString("de-DE", {
+          minimumFractionDigits: 2,
+        })} across ${
           result._count.id
         } invoices (using fast database query).`,
       };
     }
 
+    // Latest invoices
+    if (lowerQuery.includes("latest") && lowerQuery.includes("invoices")) {
+      const latestInvoices = await prisma.invoice.findMany({
+        include: { vendor: { select: { name: true } } },
+        orderBy: { invoiceDate: "desc" },
+        take: 5,
+      });
+      const results = latestInvoices.map((inv) => ({
+        invoice_ref: inv.invoiceRef,
+        vendor_name: inv.vendor?.name || "Unknown",
+        amount: inv.totalAmount || 0,
+        invoice_date: inv.invoiceDate,
+        status: inv.paymentStatus,
+      }));
+      return {
+        success: true,
+        sql: `SELECT i.invoice_ref, v.name as vendor_name, i.total_amount as amount, i.invoice_date, i.payment_status as status FROM "Invoice" i JOIN "Vendor" v ON i.vendor_id = v.id ORDER BY i.invoice_date DESC LIMIT 5;`,
+        results,
+        answer: `Here are the 5 latest invoices (using fast database query).`,
+      };
+    }
     // Overdue invoices
     if (lowerQuery.includes("overdue")) {
       const overdueInvoices = await prisma.invoice.findMany({
