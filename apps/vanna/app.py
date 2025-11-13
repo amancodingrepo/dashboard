@@ -24,15 +24,25 @@ app = Flask(__name__)
 CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 # ------------------------------------------------------
-# Groq Setup (Correct API)
+# FIX: Disable Render proxy injection (prevents Groq crash)
+# ------------------------------------------------------
+for proxy_var in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
+    if proxy_var in os.environ:
+        print(f"Removing proxy var: {proxy_var}")
+        del os.environ[proxy_var]
+
+# ------------------------------------------------------
+# Groq Setup
 # ------------------------------------------------------
 from groq import Client
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-groq_model = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+if not GROQ_API_KEY:
+    raise RuntimeError("GROQ_API_KEY missing!")
 
-# Initialize Groq client (no proxies, no deprecated params)
 client = Client(api_key=GROQ_API_KEY)
+groq_model = os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768')
+
 
 # ------------------------------------------------------
 # Database Connection
