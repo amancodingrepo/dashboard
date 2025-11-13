@@ -3,51 +3,70 @@ from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import psycopg2
-from groq import Groq
+from groq import Client
 import json
 import logging
 from datetime import datetime
+import time
 
 load_dotenv()
 
-# Configure logging
+# ------------------------------------------------------
+# Logging Configuration
+# ------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ------------------------------------------------------
+# Flask App Setup
+# ------------------------------------------------------
 app = Flask(__name__)
 CORS(app, origins=['*'], methods=['GET', 'POST', 'OPTIONS'], allow_headers=['Content-Type', 'Authorization'])
 
-# Initialize Groq client lazily
+# ------------------------------------------------------
+# Groq Setup
+# ------------------------------------------------------
 groq_api_key = os.getenv('GROQ_API_KEY')
 groq_model = os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768')
-groq_client = None
+groq_client = None   # Lazy init
+
 
 def get_groq_client():
-    """Get or initialize Groq client"""
+    """Initialize Groq client once and reuse."""
     global groq_client
-    if groq_client is None:
-        if not groq_api_key:
-            raise ValueError("GROQ_API_KEY environment variable is not set")
-        try:
-            # Initialize Groq client without any proxies
-            groq_client = Groq(api_key=groq_api_key)
-            # Test the connection
-            groq_client.chat.completions.create(
-                messages=[{"role": "user", "content": "Test"}],
-                model=groq_model,
-                max_tokens=1
-            )
-        except Exception as e:
-            logger.error(f"Groq client initialization error: {e}")
-            groq_client = None  # Reset client to allow retry
-            raise ValueError(f"Failed to initialize Groq client: {str(e)}")
+
+    if groq_client is not None:
+        return groq_client
+
+    if not groq_api_key:
+        raise ValueError("GROQ_API_KEY environment variable is not set")
+
+    try:
+        logger.info("Initializing Groq client...")
+        groq_client = Client(api_key=groq_api_key)
+
+        # Test the connection immediately
+        groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": "ping"}],
+            model=groq_model,
+            max_tokens=1
+        )
+
+        logger.info("Groq client initialized successfully.")
+
+    except Exception as e:
+        groq_client = None
+        logger.error(f"Groq client initialization error: {e}")
+        raise ValueError(f"Failed to initialize Groq client: {str(e)}")
+
     return groq_client
 
-# Database connection
+# ------------------------------------------------------
+# Database Connection
+# ------------------------------------------------------
 def get_db_connection():
     max_retries = 3
-    retry_delay = 1  # seconds
-    
+
     for attempt in range(max_retries):
         try:
             conn = psycopg2.connect(
@@ -55,14 +74,18 @@ def get_db_connection():
                 connect_timeout=5
             )
             return conn
+
         except psycopg2.OperationalError as e:
             if attempt == max_retries - 1:
+                logger.error("Database connection failed permanently.")
                 raise
-            logger.warning(f"Database connection failed (attempt {attempt + 1}): {str(e)}")
-            import time
-            time.sleep(retry_delay)
 
-# Schema information for context
+            logger.warning(f"DB connection attempt {attempt+1} failed: {e}")
+            time.sleep(1)
+
+# ------------------------------------------------------
+# Schema Context used by LLM
+# ------------------------------------------------------
 SCHEMA_CONTEXT = """
 Database Schema:
 1. Invoice table: id, invoice_ref, invoice_date, total_amount, payment_status, payment_due_date, vendor_id
@@ -77,195 +100,169 @@ Relationships:
 - LineItem.document_id -> Document.id
 """
 
-@app.route('/', methods=['GET'])
+# ------------------------------------------------------
+# ROUTES
+# ------------------------------------------------------
+@app.route("/", methods=["GET"])
 def home():
     return jsonify({
         "service": "Vanna AI Backend",
-        "status": "✅ Running successfully on Render",
+        "status": "running",
         "python_version": "3.12",
         "endpoints": {
             "health": "/health",
             "generate_sql": "/generate-sql (POST)",
             "train": "/train (POST)"
-        },
-        "message": "Vanna AI service is live and ready to generate SQL from natural language!"
+        }
     })
 
-@app.route('/health', methods=['GET'])
+
+@app.route("/health", methods=["GET"])
 def health():
     try:
-        # Basic health check without external dependencies
-        health_status = {
-            "status": "healthy", 
-            "service": "vanna-ai",
-            "python_version": "3.12",
+        status = {
+            "status": "healthy",
             "groq_configured": bool(groq_api_key),
-            "database_url_set": bool(os.getenv('DATABASE_URL')),
-            "timestamp": "2024-11-12T07:50:00Z"
+            "database_url_set": bool(os.getenv("DATABASE_URL")),
+            "timestamp": datetime.utcnow().isoformat()
         }
-        
-        # Only test Groq if explicitly requested
-        if request.args.get('test_groq') == 'true' and groq_api_key:
+
+        if request.args.get("test_groq") == "true":
             try:
                 get_groq_client()
-                health_status["groq_test"] = "passed"
-            except Exception as groq_error:
-                health_status["groq_test"] = f"failed: {str(groq_error)}"
-                health_status["status"] = "degraded"
-        
-        return jsonify(health_status)
-    except Exception as e:
-        logger.error(f"Health check error: {e}")
-        return jsonify({
-            "status": "error",
-            "service": "vanna-ai",
-            "error": str(e)
-        }), 500
+                status["groq_test"] = "passed"
+            except Exception as ex:
+                status["groq_test"] = f"failed: {ex}"
+                status["status"] = "degraded"
 
-@app.route('/generate-sql', methods=['POST'])
+        return jsonify(status)
+
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+# ------------------------------------------------------
+# SQL Generation Endpoint
+# ------------------------------------------------------
+@app.route("/generate-sql", methods=["POST"])
 def generate_sql():
     try:
         logger.info(f"Request received at {datetime.utcnow().isoformat()}")
         data = request.get_json()
         logger.info(f"Request payload: {data}")
-        question = data.get('question')
-        
-        if not question or not question.strip():
-            logger.warning("Empty question received")
-            return jsonify({
-                "error": "Question is required and cannot be empty",
-                "success": False
-            }), 400
-        
+
+        question = data.get("question", "").strip()
+        if not question:
+            return jsonify({"error": "Question cannot be empty", "success": False}), 400
+
         if not groq_api_key:
-            logger.warning("GROQ_API_KEY not configured")
-            return jsonify({
-                "error": "GROQ_API_KEY not configured. Please set the GROQ_API_KEY environment variable.",
-                "success": False
-            }), 503
-            
-        # Log the incoming request for debugging
-        print(f"Received question: {question[:100]}..." if len(question) > 100 else f"Received question: {question}")
-        
-        # Generate SQL using Groq
-        prompt = f"""You are a SQL expert. Given the following database schema and a natural language question, generate a valid PostgreSQL query.
+            return jsonify({"error": "GROQ_API_KEY not set", "success": False}), 503
+
+        # Prepare LLM prompt
+        prompt = f"""
+You are a SQL expert. Using this schema, generate a PostgreSQL query:
 
 {SCHEMA_CONTEXT}
 
 Question: {question}
 
-Generate ONLY the SQL query, no explanations. Use proper PostgreSQL syntax.
-Include appropriate JOINs, WHERE clauses, and ORDER BY as needed.
-Format currency as numeric/decimal types.
-Use date functions like NOW(), DATE_TRUNC() for date operations.
+Rules:
+- Output ONLY SQL (no markdown, explanations, or comments)
+- Use correct JOINs, WHERE, ORDER BY
+- PostgreSQL syntax only
+SQL:
+"""
 
-SQL Query:"""
-        
+        # ----- LLM CALL -----
         try:
             client = get_groq_client()
-            chat_completion = client.chat.completions.create(
+            completion = client.chat.completions.create(
                 messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a SQL expert that generates PostgreSQL queries. Output only valid SQL, no explanations."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+                    {"role": "system", "content": "You output ONLY SQL."},
+                    {"role": "user", "content": prompt}
                 ],
                 model=groq_model,
                 temperature=0.1,
-                max_tokens=1024,
-                timeout=10  # 10 second timeout
+                max_tokens=1024
             )
-            
-            sql = chat_completion.choices[0].message.content.strip()
-            
-            # Clean up SQL (remove markdown code blocks if present)
-            sql = sql.replace('```sql', '').replace('```', '').strip()
-        except Exception as groq_error:
-            logger.error(f"Groq API error: {str(groq_error)}")
+            sql = completion.choices[0].message.content.strip()
+            sql = sql.replace("```sql", "").replace("```", "").strip()
+
+        except Exception as e:
+            logger.error(f"Groq API error: {e}")
             return jsonify({
-                "error": f"Groq API error: {str(groq_error)}",
-                "success": False,
-                "fallback_available": True
+                "error": f"Groq API error: {str(e)}",
+                "success": False
             }), 503
-        
-        # Execute SQL and get results
+
+        # ----- EXECUTE SQL -----
         conn = get_db_connection()
-        conn.autocommit = True
         cursor = conn.cursor()
-        
+
         try:
             cursor.execute(sql)
-            
-            has_result_set = cursor.description is not None
-            rows_affected = cursor.rowcount if cursor.rowcount != -1 else None
             results = []
-            
-            if has_result_set:
-                columns = [desc[0] for desc in cursor.description]
+
+            if cursor.description:  # SELECT query
+                columns = [col[0] for col in cursor.description]
                 rows = cursor.fetchall()
-                
-                for row in rows:
-                    result_dict = {}
+
+                for r in rows:
+                    row_data = {}
                     for i, col in enumerate(columns):
-                        value = row[i]
-                        if hasattr(value, 'isoformat'):
-                            value = value.isoformat()
-                        result_dict[col] = value
-                    results.append(result_dict)
-            else:
-                # For statements like CREATE/UPDATE/DELETE, no result set is returned
-                rows = []
-            
+                        val = r[i]
+                        if hasattr(val, "isoformat"):
+                            val = val.isoformat()
+                        row_data[col] = val
+                    results.append(row_data)
+
+                response = {
+                    "sql": sql,
+                    "results": results,
+                    "success": True
+                }
+
+            else:  # INSERT/UPDATE/DELETE
+                response = {
+                    "sql": sql,
+                    "rows_affected": cursor.rowcount,
+                    "message": "Query executed successfully",
+                    "success": True
+                }
+
             cursor.close()
             conn.close()
-            
-            response_payload = {
-                "question": question,
-                "sql": sql,
-                "results": results,
-                "success": True
-            }
-            
-            if not has_result_set:
-                response_payload["rows_affected"] = rows_affected
-                response_payload["message"] = "Query executed successfully."
-            
-            return jsonify(response_payload)
-            
-        except Exception as db_error:
-            logger.error(f"Database error: {str(db_error)}")
+            return jsonify(response)
+
+        except Exception as e:
             cursor.close()
             conn.close()
+            logger.error(f"SQL execution error: {e}")
             return jsonify({
-                "error": f"SQL execution error: {str(db_error)}",
+                "error": str(e),
                 "sql": sql,
                 "success": False
             }), 500
-        
+
     except Exception as e:
-        logger.error(f"Error in generate_sql: {e}")
-        return jsonify({
-            "error": str(e),
-            "success": False
-        }), 500
+        logger.error(f"Unexpected error in generate_sql: {e}")
+        return jsonify({"error": str(e), "success": False}), 500
 
-@app.route('/train', methods=['POST'])
+
+# ------------------------------------------------------
+# Train Endpoint (placeholder)
+# ------------------------------------------------------
+@app.route("/train", methods=["POST"])
 def train():
-    """
-    Endpoint to update schema context or add training examples
-    In a full Vanna implementation, this would train the vector store
-    """
-    return jsonify({
-        "message": "Training endpoint - currently using schema context",
-        "success": True
-    })
+    return jsonify({"message": "Training endpoint placeholder", "success": True})
 
-if __name__ == '__main__':
-    port = int(os.getenv('PORT', 8000))
+
+# ------------------------------------------------------
+# Start Server (Render-compatible)
+# ------------------------------------------------------
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8000))
     print(f"Starting Vanna AI service on port {port}")
-    print("Schema context loaded")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print("Schema context loaded.")
+    app.run(host="0.0.0.0", port=port, debug=False)
