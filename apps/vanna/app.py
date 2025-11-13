@@ -3,159 +3,157 @@ from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import psycopg2
+import json
 import logging
 from datetime import datetime
 import time
 
-# ------------------------------------------------------
-# Load environment variables
-# ------------------------------------------------------
 load_dotenv()
 
-# ------------------------------------------------------
-# Logging configuration
-# ------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ------------------------------------------------------
-# Flask
-# ------------------------------------------------------
 app = Flask(__name__)
-CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"])
+CORS(app, origins=['*'], methods=['GET', 'POST', 'OPTIONS'], allow_headers=['Content-Type', 'Authorization'])
 
-# ------------------------------------------------------
-# Groq SDK (FINAL + STABLE)
-# ------------------------------------------------------
+# -----------------------------
+# Groq Setup (NO PROXIES BUG)
+# -----------------------------
 from groq import Client
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise Exception("GROQ_API_KEY is missing")
+client = Client(api_key=GROQ_API_KEY)  # groq 0.9.0 works clean
+groq_model = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
 
-client = Client(api_key=GROQ_API_KEY)  # <--- WORKS because httpx==0.27.2
-model = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
-
-# ------------------------------------------------------
-# Database helper
-# ------------------------------------------------------
+# -----------------------------
+# DB
+# -----------------------------
 def get_db_connection():
-    retries = 3
-    for attempt in range(retries):
+    max_retries = 3
+
+    for attempt in range(max_retries):
         try:
-            conn = psycopg2.connect(os.getenv("DATABASE_URL"), connect_timeout=5)
+            conn = psycopg2.connect(
+                os.getenv('DATABASE_URL'),
+                connect_timeout=5
+            )
             return conn
+
         except psycopg2.OperationalError as e:
-            if attempt == retries - 1:
+            if attempt == max_retries - 1:
+                logger.error("DB connection failed permanently.")
                 raise
+
             logger.warning(f"DB connection attempt {attempt+1} failed: {e}")
             time.sleep(1)
 
-# ------------------------------------------------------
-# Schema context
-# ------------------------------------------------------
+# -----------------------------
+# Schema
+# -----------------------------
 SCHEMA_CONTEXT = """
-Invoice: id, invoice_ref, invoice_date, total_amount, payment_status, payment_due_date, vendor_id
-Vendor: id, name, tax_id
-Customer: id, name, address
-LineItem: id, description, quantity, unit_price, total_price, document_id
-Document: id, name, file_size, is_validated_by_human
+Database Schema:
+1. Invoice table: id, invoice_ref, invoice_date, total_amount, payment_status, payment_due_date, vendor_id
+2. Vendor table: id, name, tax_id
+3. Customer table: id, name, address
+4. LineItem table: id, description, quantity, unit_price, total_price, document_id
+5. Document table: id, name, file_size, is_validated_by_human
 
 Relationships:
-Invoice.vendor_id -> Vendor.id
-Invoice.customer_id -> Customer.id
-LineItem.document_id -> Document.id
+- Invoice.vendor_id -> Vendor.id
+- Invoice.customer_id -> Customer.id
+- LineItem.document_id -> Document.id
 """
 
-# ------------------------------------------------------
-# Routes
-# ------------------------------------------------------
-@app.route("/", methods=["GET"])
+@app.get("/")
 def home():
-    return jsonify({"status": "running", "service": "vanna-ai-backend"})
+    return jsonify({"status": "running", "service": "Vanna AI"})
 
-@app.route("/health", methods=["GET"])
+@app.get("/health")
 def health():
-    status = {
-        "status": "healthy",
-        "groq_configured": bool(GROQ_API_KEY),
-        "database_url_set": bool(os.getenv("DATABASE_URL")),
-        "timestamp": datetime.utcnow().isoformat()
-    }
-    return jsonify(status)
+    return jsonify({
+        "status": "ok",
+        "groq_ok": bool(GROQ_API_KEY),
+        "db_ok": bool(os.getenv("DATABASE_URL")),
+        "time": datetime.utcnow().isoformat()
+    })
 
-# ------------------------------------------------------
-# SQL generation
-# ------------------------------------------------------
-@app.route("/generate-sql", methods=["POST"])
+# -----------------------------
+# Generate SQL
+# -----------------------------
+@app.post("/generate-sql")
 def generate_sql():
-    try:
-        data = request.get_json()
-        question = data.get("question", "").strip()
+    data = request.get_json()
+    question = data.get("question", "").strip()
 
-        if not question:
-            return jsonify({"error": "Question cannot be empty", "success": False}), 400
+    if not question:
+        return jsonify({"error": "No question", "success": False}), 400
 
-        prompt = f"""
-You are a SQL expert. Using this schema:\n{SCHEMA_CONTEXT}
+    prompt = f"""
+You are a SQL expert. Using this schema, generate a PostgreSQL query:
+
+{SCHEMA_CONTEXT}
+
 Question: {question}
-Output ONLY the SQL query (no markdown, no explanation).
+
+Rules:
+- Output ONLY SQL.
+- No markdown.
+- No comments.
+SQL:
 """
 
-        # LLM CALL
+    try:
         completion = client.chat.completions.create(
-            model=model,
             messages=[
-                {"role": "system", "content": "Return only SQL."},
+                {"role": "system", "content": "You output ONLY SQL."},
                 {"role": "user", "content": prompt}
             ],
+            model=groq_model,
             temperature=0.1,
             max_tokens=1024
         )
-
-        sql = completion.choices[0].message.content.strip()
+        sql = completion.choices[0].message.content
         sql = sql.replace("```sql", "").replace("```", "").strip()
 
-        # Execute SQL
-        conn = get_db_connection()
-        cur = conn.cursor()
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 503
 
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
         cur.execute(sql)
 
-        if cur.description:  # SELECT
+        if cur.description:
             cols = [c[0] for c in cur.description]
             rows = cur.fetchall()
-            result = [dict(zip(cols, r)) for r in rows]
-            cur.close()
-            conn.close()
-            return jsonify({"sql": sql, "results": result, "success": True})
 
-        # INSERT / UPDATE / DELETE
-        affected = cur.rowcount
+            results = [
+                {cols[i]: (v.isoformat() if hasattr(v, "isoformat") else v) for i, v in enumerate(row)}
+                for row in rows
+            ]
+
+            response = {"sql": sql, "results": results, "success": True}
+        else:
+            response = {
+                "sql": sql,
+                "rows_affected": cur.rowcount,
+                "success": True
+            }
+
         cur.close()
-        conn.commit()
         conn.close()
-
-        return jsonify({
-            "sql": sql,
-            "rows_affected": affected,
-            "success": True
-        })
+        return jsonify(response)
 
     except Exception as e:
-        logger.error(f"SQL generation or execution error: {e}")
-        return jsonify({"error": str(e), "success": False}), 500
+        cur.close()
+        conn.close()
+        return jsonify({"error": str(e), "sql": sql, "success": False}), 500
 
-# ------------------------------------------------------
-# Train (placeholder)
-# ------------------------------------------------------
-@app.route("/train", methods=["POST"])
+@app.post("/train")
 def train():
-    return jsonify({"success": True, "message": "Training not required"})
+    return jsonify({"message": "train placeholder", "success": True})
 
-# ------------------------------------------------------
-# Run server
-# ------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
