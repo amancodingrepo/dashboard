@@ -20,7 +20,7 @@ export function ChatInterface() {
     {
       role: 'assistant',
       content:
-        "Hello! I can help you analyze your invoice and vendor data. Try asking questions like:\n\n• \"What's the total spend in the last 90 days?\"\n• \"List top 5 vendors by spend\"\n• \"Show overdue invoices\"",
+        "Hello! I can help you analyze your invoice and vendor data. Try asking questions like:\n\n• \"What's the total spend in the last 90 days?\"\n• \"List top 5 vendors by spend\"\n• \"Show overdue invoices\"\n• \"Show latest invoices\"",
       sql: null,
       results: null,
     },
@@ -28,8 +28,16 @@ export function ChatInterface() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  // Always use current origin to avoid CORS issues with multiple deployments
-  const apiUrl = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001')
+  
+  // Get the appropriate API URL based on environment
+  const getApiUrl = () => {
+    // In production, use relative path (same domain)
+    if (process.env.NODE_ENV === 'production') {
+      return '' // Empty string means relative to current origin
+    }
+    // In development, use the configured API URL or default to localhost:4001
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -51,12 +59,28 @@ export function ChatInterface() {
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setIsLoading(true)
+    
+    // Debug log
+    console.log('Sending chat request for query:', input)
 
     try {
-      const response = await axios.post(`${apiUrl}/api/chat-with-data`, {
+      const apiBase = getApiUrl()
+      const apiPath = `${apiBase}${apiBase.endsWith('/') ? '' : '/'}api/chat-with-data`
+      
+      console.log('API Request URL:', apiPath) // Debug log
+      
+      const response = await axios.post(apiPath, {
         query: input,
+      }, {
+        timeout: 30000, // 30 second timeout
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
       })
-
+      
+      console.log('API Response:', response.data) // Debug log
+      
       const assistantMessage: Message = {
         role: 'assistant',
         content: response.data.answer || 'I found some results for your query.',
@@ -71,15 +95,43 @@ export function ChatInterface() {
       let errorMessage = 'Sorry, I encountered an error processing your request.'
       let errorDetail = 'API Error'
       
-      if (error.response?.data?.error) {
-        errorDetail = error.response.data.error
-      } else if (error.message) {
-        errorDetail = error.message
+      // Log detailed error information
+      const errorDetails = {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        url: error.config?.url,
+        method: error.config?.method,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       }
       
-      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+      console.error('Error details:', errorDetails)
+      
+      // Handle different types of errors
+      if (error.response) {
+        // Server responded with error status
+        errorDetail = error.response.data?.error || 
+                     error.response.data?.message || 
+                     `HTTP ${error.response.status}`
+        
+        if (error.response.status === 404) {
+          errorMessage = 'The requested resource was not found.'
+        } else if (error.response.status === 500) {
+          errorMessage = 'Server error. Please try again later.'
+          errorDetail = error.response.data?.error || 'Internal Server Error'
+        }
+      } else if (error.request) {
+        // No response received
+        errorMessage = 'No response from the server. Please check your connection.'
+        errorDetail = 'No Response'
+      } else if (error.code === 'ECONNABORTED') {
+        errorMessage = 'Request timed out. The server is taking too long to respond.'
+        errorDetail = 'Request Timeout'
+      } else if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
         errorMessage = 'Unable to connect to the AI service. Please check if the service is running.'
         errorDetail = 'Connection Error'
+      } else if (error.message) {
+        errorDetail = error.message
       }
       
       setMessages((prev) => [
@@ -131,34 +183,50 @@ export function ChatInterface() {
                   </div>
                 )}
 
-                {message.results && message.results.length > 0 && (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="min-w-full border border-custom-slate-200 text-xs">
+                {message.results && Array.isArray(message.results) && message.results.length > 0 && (
+                  <div className="mt-3 overflow-x-auto rounded-lg border border-custom-slate-200">
+                    <table className="min-w-full border-collapse text-xs">
                       <thead className="bg-custom-slate-50">
                         <tr>
-                          {Object.keys(message.results[0]).map((key) => (
+                          {Object.keys(message.results[0] || {}).map((key) => (
                             <th
                               key={key}
-                              className="border border-custom-slate-200 px-2 py-1 text-left font-medium text-custom-slate-600 uppercase"
+                              className="border border-custom-slate-200 px-3 py-2 text-left font-semibold text-custom-slate-700 uppercase tracking-wide"
                             >
-                              {key}
+                              {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             </th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="bg-white">
                         {message.results.map((row, i) => (
-                          <tr key={i}>
-                            {Object.values(row).map((val: any, j) => (
-                              <td
-                                key={j}
-                                className="border border-custom-slate-200 px-2 py-1 text-custom-slate-700"
-                              >
-                                {typeof val === 'object'
-                                  ? JSON.stringify(val)
-                                  : String(val)}
-                              </td>
-                            ))}
+                          <tr key={i} className="hover:bg-custom-slate-50 transition-colors">
+                            {Object.values(row || {}).map((val: any, j) => {
+                              // Format the value for display
+                              let displayValue = val;
+                              if (val === null || val === undefined) {
+                                displayValue = '-';
+                              } else if (typeof val === 'number') {
+                                // Format large numbers with commas
+                                displayValue = val.toLocaleString('en-US', {
+                                  minimumFractionDigits: val % 1 !== 0 ? 2 : 0,
+                                  maximumFractionDigits: 2
+                                });
+                              } else if (typeof val === 'object') {
+                                displayValue = JSON.stringify(val);
+                              } else {
+                                displayValue = String(val);
+                              }
+                              
+                              return (
+                                <td
+                                  key={j}
+                                  className="border border-custom-slate-200 px-3 py-2 text-custom-slate-700"
+                                >
+                                  {displayValue}
+                                </td>
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>

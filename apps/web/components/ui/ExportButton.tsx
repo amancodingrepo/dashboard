@@ -16,7 +16,15 @@ export function ExportButton({
   filters = {},
 }: ExportButtonProps) {
   const [isExporting, setIsExporting] = useState(false)
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'
+  
+  const getApiUrl = () => {
+    // In production, use relative path (same domain)
+    if (typeof window !== 'undefined' && window.location.origin) {
+      return '' // Empty string means relative to current origin
+    }
+    // Fallback for SSR or development
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'
+  }
 
   const handleExport = async () => {
     setIsExporting(true)
@@ -27,7 +35,8 @@ export function ExportButton({
         ...filters,
       }).toString()
 
-      const url = `${apiUrl}/api/export/${exportType}?${queryParams}`
+      const apiBase = getApiUrl()
+      const url = apiBase ? `${apiBase}/api/export/${exportType}?${queryParams}` : `/api/export/${exportType}?${queryParams}`
 
       // Trigger download
       const link = document.createElement('a')

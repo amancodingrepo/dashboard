@@ -9,6 +9,7 @@ const invoices_1 = __importDefault(require("./invoices"));
 const analytics_1 = __importDefault(require("./analytics"));
 const dashboard_1 = __importDefault(require("./dashboard"));
 const chat_1 = __importDefault(require("./chat"));
+const chatWithData_1 = __importDefault(require("./chatWithData"));
 const export_1 = __importDefault(require("./export"));
 const router = (0, express_1.Router)();
 // API routes
@@ -17,6 +18,7 @@ router.use('/invoices', invoices_1.default);
 router.use('/analytics', analytics_1.default);
 router.use('/dashboard', dashboard_1.default);
 router.use('/export', export_1.default);
+router.use('/chat-with-data', chatWithData_1.default);
 router.use('/', chat_1.default);
 // API version info
 router.get('/version', (req, res) => {

@@ -1,93 +1,9 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const axios_1 = __importDefault(require("axios"));
 const prisma_1 = require("../lib/prisma");
 const router = (0, express_1.Router)();
-/**
- * POST /api/chat-with-data
- * Forwards natural language queries to Vanna AI
- * Returns generated SQL and query results
- */
-router.post('/chat-with-data', async (req, res) => {
-    try {
-        const { query, userId } = req.body; // userId optional for now
-        if (!query || typeof query !== 'string') {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid request',
-                message: 'Query parameter is required and must be a string',
-            });
-        }
-        const vannaBaseUrl = process.env.VANNA_API_BASE_URL;
-        // If Vanna AI is not configured, use fallback logic
-        if (!vannaBaseUrl) {
-            console.warn('Vanna AI not configured, using fallback query handler');
-            const result = await handleQueryFallback(query);
-            // Save to history
-            try {
-                await prisma_1.prisma.chatHistory.create({
-                    data: {
-                        userId: userId || null,
-                        query,
-                        sql: result.sql,
-                        results: result.results || [],
-                        error: result.error || null,
-                    },
-                });
-            }
-            catch (historyError) {
-                console.error('Failed to save chat history:', historyError);
-            }
-            return res.json(result);
-        }
-        try {
-            // Forward query to Vanna AI
-            const vannaResponse = await axios_1.default.post(`${vannaBaseUrl}/generate-sql`, {
-                question: query,
-            }, {
-                timeout: 30000,
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(process.env.VANNA_API_KEY && {
-                        Authorization: `Bearer ${process.env.VANNA_API_KEY}`,
-                    }),
-                },
-            });
-            const { sql, results, error } = vannaResponse.data;
-            if (error) {
-                return res.json({
-                    success: false,
-                    error: error,
-                    answer: 'I encountered an error generating SQL for your question.',
-                });
-            }
-            return res.json({
-                success: true,
-                sql: sql,
-                results: results || [],
-                answer: generateAnswer(query, results),
-            });
-        }
-        catch (vannaError) {
-            console.error('Vanna AI error:', vannaError.message);
-            // Fallback to local processing
-            const result = await handleQueryFallback(query);
-            return res.json(result);
-        }
-    }
-    catch (error) {
-        console.error('Chat endpoint error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to process query',
-            message: error.message,
-        });
-    }
-});
+// Note: /chat-with-data route moved to dedicated chatWithData.ts file
 /**
  * Fallback handler when Vanna AI is not available
  * Handles common queries directly using Prisma

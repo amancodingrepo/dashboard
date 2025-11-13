@@ -109,7 +109,6 @@ router.get('/vendors', async (req, res) => {
                 },
             },
         });
-        // Get vendor details
         const vendorIds = vendorSpend
             .map((v) => v.vendorId)
             .filter((id) => id !== null);
@@ -120,14 +119,17 @@ router.get('/vendors', async (req, res) => {
         });
         const vendorMap = new Map(vendors.map((v) => [v.id, v]));
         // Transform data
-        const exportData = vendorSpend.map((v) => {
+        const exportData = vendorSpend
+            .filter((v) => v.vendorId !== null)
+            .map((v) => {
+            var _a, _b;
             const vendor = vendorMap.get(v.vendorId);
             return {
                 'Vendor Name': (vendor === null || vendor === void 0 ? void 0 : vendor.name) || 'Unknown',
                 'Vendor Tax ID': (vendor === null || vendor === void 0 ? void 0 : vendor.taxId) || '',
                 'Total Invoices': v._count.id,
-                'Total Spend': v._sum.totalAmount || 0,
-                'Average Invoice Value': v._avg.totalAmount || 0,
+                'Total Spend': (_a = v._sum.totalAmount) !== null && _a !== void 0 ? _a : 0,
+                'Average Invoice Value': (_b = v._avg.totalAmount) !== null && _b !== void 0 ? _b : 0,
             };
         });
         if (format === 'json') {

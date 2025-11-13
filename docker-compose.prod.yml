@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-flowbit}
+      POSTGRES_DB: ${POSTGRES_DB:-flowbit_analytics}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -40,13 +40,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/flowbit?schema=public
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      NODE_ENV: production
-      ALLOWED_ORIGINS: http://localhost:3001
-      PORT: 4000
+    env_file: .env.production
     depends_on:
       db:
         condition: service_healthy
@@ -69,10 +63,7 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
-    env_file: .env
-    environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
-      NODE_ENV: production
+    env_file: .env.production
     depends_on:
       api:
         condition: service_healthy
@@ -90,17 +81,18 @@ services:
 
   vanna:
     build:
-      context: ./services/vanna
-      dockerfile: dockerfile
-    env_file: .env
+      context: ./apps/vanna
+      dockerfile: Dockerfile
+    env_file: .env.production
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/flowbit?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/flowbit_analytics
+      PORT: 8000
       LOG_LEVEL: info
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import requests; requests.get('http://localhost:8000/docs', timeout=2)\""]
+      test: ["CMD-SHELL", "python -c \"import requests; requests.get('http://localhost:8000/health', timeout=2)\""]
       interval: 10s
       timeout: 5s
       retries: 3
