@@ -3,17 +3,11 @@ flask-cors==4.0.0
 psycopg2-binary==2.9.9
 python-dotenv==1.0.0
 
-# Groq — stable version without proxies bug
+# Groq SDK (latest compatible)
 groq==0.11.0
+
+# FIX: Lock httpx to a compatible version (0.28+ breaks Groq)
+httpx==0.27.2
 
 # Vanna AI
 vanna==0.5.5
-
-# Required for Vanna dependencies
-pandas==2.3.3
-numpy==2.3.4
-requests==2.32.5
-sqlalchemy==2.0.44
-plotly==6.4.0
-kaleido==1.2.0
-simplejson==3.20.2
