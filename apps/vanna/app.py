@@ -5,8 +5,14 @@ from dotenv import load_dotenv
 import psycopg2
 from groq import Groq
 import json
+import logging
+from datetime import datetime
 
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app, origins=['*'], methods=['GET', 'POST', 'OPTIONS'], allow_headers=['Content-Type', 'Authorization'])
@@ -32,14 +38,29 @@ def get_groq_client():
                 max_tokens=1
             )
         except Exception as e:
-            print(f"Groq client initialization error: {e}")
+            logger.error(f"Groq client initialization error: {e}")
             groq_client = None  # Reset client to allow retry
             raise ValueError(f"Failed to initialize Groq client: {str(e)}")
     return groq_client
 
 # Database connection
 def get_db_connection():
-    return psycopg2.connect(os.getenv('DATABASE_URL'))
+    max_retries = 3
+    retry_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            conn = psycopg2.connect(
+                os.getenv('DATABASE_URL'),
+                connect_timeout=5
+            )
+            return conn
+        except psycopg2.OperationalError as e:
+            if attempt == max_retries - 1:
+                raise
+            logger.warning(f"Database connection failed (attempt {attempt + 1}): {str(e)}")
+            import time
+            time.sleep(retry_delay)
 
 # Schema information for context
 SCHEMA_CONTEXT = """
@@ -94,6 +115,7 @@ def health():
         
         return jsonify(health_status)
     except Exception as e:
+        logger.error(f"Health check error: {e}")
         return jsonify({
             "status": "error",
             "service": "vanna-ai",
@@ -103,16 +125,20 @@ def health():
 @app.route('/generate-sql', methods=['POST'])
 def generate_sql():
     try:
+        logger.info(f"Request received at {datetime.utcnow().isoformat()}")
         data = request.get_json()
+        logger.info(f"Request payload: {data}")
         question = data.get('question')
         
         if not question or not question.strip():
+            logger.warning("Empty question received")
             return jsonify({
                 "error": "Question is required and cannot be empty",
                 "success": False
             }), 400
         
         if not groq_api_key:
+            logger.warning("GROQ_API_KEY not configured")
             return jsonify({
                 "error": "GROQ_API_KEY not configured. Please set the GROQ_API_KEY environment variable.",
                 "success": False
@@ -135,27 +161,36 @@ Use date functions like NOW(), DATE_TRUNC() for date operations.
 
 SQL Query:"""
         
-        client = get_groq_client()
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a SQL expert that generates PostgreSQL queries. Output only valid SQL, no explanations."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            model=groq_model,
-            temperature=0.1,
-            max_tokens=1024,
-        )
-        
-        sql = chat_completion.choices[0].message.content.strip()
-        
-        # Clean up SQL (remove markdown code blocks if present)
-        sql = sql.replace('```sql', '').replace('```', '').strip()
+        try:
+            client = get_groq_client()
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a SQL expert that generates PostgreSQL queries. Output only valid SQL, no explanations."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                model=groq_model,
+                temperature=0.1,
+                max_tokens=1024,
+                timeout=10  # 10 second timeout
+            )
+            
+            sql = chat_completion.choices[0].message.content.strip()
+            
+            # Clean up SQL (remove markdown code blocks if present)
+            sql = sql.replace('```sql', '').replace('```', '').strip()
+        except Exception as groq_error:
+            logger.error(f"Groq API error: {str(groq_error)}")
+            return jsonify({
+                "error": f"Groq API error: {str(groq_error)}",
+                "success": False,
+                "fallback_available": True
+            }), 503
         
         # Execute SQL and get results
         conn = get_db_connection()
@@ -202,6 +237,7 @@ SQL Query:"""
             return jsonify(response_payload)
             
         except Exception as db_error:
+            logger.error(f"Database error: {str(db_error)}")
             cursor.close()
             conn.close()
             return jsonify({
@@ -211,6 +247,7 @@ SQL Query:"""
             }), 500
         
     except Exception as e:
+        logger.error(f"Error in generate_sql: {e}")
         return jsonify({
             "error": str(e),
             "success": False
