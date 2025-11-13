@@ -3,49 +3,50 @@ from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import psycopg2
+import json
 import logging
-import time
 from datetime import datetime
+import time
 
 load_dotenv()
 
 # ------------------------------------------------------
-# Logging
+# Logging Setup
 # ------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------
-# Flask
+# Flask App Setup
 # ------------------------------------------------------
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 # ------------------------------------------------------
-# Groq (compatible with version 0.9.0)
+# Groq Setup (Working Version)
 # ------------------------------------------------------
-from groq import Groq   # correct import for 0.9.0
-
+from groq import Client
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-groq_client = Groq(api_key=GROQ_API_KEY)
+groq_client = Client(api_key=GROQ_API_KEY)
 groq_model = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
 
 # ------------------------------------------------------
-# DB
+# Database Connection
 # ------------------------------------------------------
 def get_db_connection():
     retries = 3
-    for i in range(retries):
+    for attempt in range(retries):
         try:
-            conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+            conn = psycopg2.connect(os.getenv("DATABASE_URL"), connect_timeout=5)
             return conn
-        except Exception as e:
-            logger.warning(f"DB connect failed {i+1}/{retries}: {e}")
+        except psycopg2.OperationalError as e:
+            logger.warning(f"DB connection attempt {attempt+1} failed: {e}")
+            if attempt == retries - 1:
+                raise
             time.sleep(1)
-    raise Exception("DB connection failed")
 
 # ------------------------------------------------------
-# Schema Context
+# Schema Context for LLM
 # ------------------------------------------------------
 SCHEMA_CONTEXT = """
 Database Schema:
@@ -56,88 +57,106 @@ Database Schema:
 5. Document: id, name, file_size, is_validated_by_human
 
 Relationships:
-- Invoice.vendor_id -> Vendor.id
-- Invoice.customer_id -> Customer.id
-- LineItem.document_id -> Document.id
+Invoice.vendor_id -> Vendor.id
+Invoice.customer_id -> Customer.id
+LineItem.document_id -> Document.id
 """
 
 # ------------------------------------------------------
-# Routes
+# ROUTES
 # ------------------------------------------------------
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    return {"status": "running", "service": "Vanna AI"}
+    return jsonify({
+        "service": "Flowbit Vanna AI Backend",
+        "status": "running",
+        "python_version": "3.12",
+        "endpoints": ["/health", "/generate-sql"]
+    })
 
-@app.route("/health")
-def health():
+
+@app.route("/health", methods=["GET"])
+def health_check():
     try:
-        # Quick ping to Groq
-        groq_client.chat.completions.create(
-            model=groq_model,
-            messages=[{"role": "user", "content": "ping"}]
-        )
-        return {"status": "healthy"}
+        status = {
+            "status": "ok",
+            "groq": bool(GROQ_API_KEY),
+            "db": bool(os.getenv("DATABASE_URL")),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        return jsonify(status)
     except Exception as e:
-        return {"status": "degraded", "error": str(e)}
+        return jsonify({"status": "error", "error": str(e)}), 500
+
 
 @app.route("/generate-sql", methods=["POST"])
 def generate_sql():
     try:
         data = request.get_json()
-        question = data.get("question", "").strip()
+        question = data.get("question", "")
 
         if not question:
-            return {"success": False, "error": "Question required"}, 400
+            return jsonify({"success": False, "error": "Question is required"}), 400
 
         prompt = f"""
-Use this schema and write ONLY PostgreSQL SQL:
+You are a SQL expert. Use ONLY PostgreSQL syntax.
 
+Schema:
 {SCHEMA_CONTEXT}
 
 Question: {question}
 
-SQL:
-        """
+Output only SQL:
+"""
 
-        # LLM call
-        completion = groq_client.chat.completions.create(
-            model=groq_model,
-            messages=[
-                {"role": "system", "content": "Output ONLY SQL."},
-                {"role": "user", "content": prompt}
-            ]
-        )
+        # ---- LLM Call ----
+        try:
+            response = groq_client.chat.completions.create(
+                model=groq_model,
+                messages=[
+                    {"role": "system", "content": "Return ONLY SQL."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=1024
+            )
+            sql = response.choices[0].message.content.strip()
+            sql = sql.replace("```sql", "").replace("```", "").strip()
+        except Exception as e:
+            logger.error(f"Groq API error: {e}")
+            return jsonify({"success": False, "error": f"Groq error: {e}"}), 503
 
-        sql = completion.choices[0].message["content"].strip()
-
-        # Execute SQL
+        # ---- Execute SQL ----
         conn = get_db_connection()
-        cur = conn.cursor()
+        cursor = conn.cursor()
 
-        cur.execute(sql)
+        try:
+            cursor.execute(sql)
 
-        if cur.description:
-            cols = [c[0] for c in cur.description]
-            rows = cur.fetchall()
+            if cursor.description:  # SELECT
+                columns = [col[0] for col in cursor.description]
+                rows = cursor.fetchall()
+                results = [dict(zip(columns, r)) for r in rows]
 
-            results = [dict(zip(cols, row)) for row in rows]
+                return jsonify({"success": True, "sql": sql, "results": results})
 
-            return {"success": True, "sql": sql, "results": results}
+            return jsonify({"success": True, "sql": sql, "rows_affected": cursor.rowcount})
 
-        else:
-            return {
-                "success": True,
-                "sql": sql,
-                "rows_affected": cur.rowcount
-            }
+        except Exception as e:
+            logger.error(f"SQL error: {e}")
+            return jsonify({"success": False, "error": str(e), "sql": sql}), 500
+
+        finally:
+            cursor.close()
+            conn.close()
 
     except Exception as e:
-        return {"success": False, "error": str(e)}, 500
+        logger.error(f"Unexpected error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
-# ------------------------------------------------------
-# Run server
-# ------------------------------------------------------
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    print(f"Server running on port {port}")
+    print("Starting Flowbit Vanna AI backend...")
     app.run(host="0.0.0.0", port=port)

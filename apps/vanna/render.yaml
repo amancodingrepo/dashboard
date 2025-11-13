@@ -4,14 +4,9 @@ services:
     env: python
     runtime: python-3.12.7
 
-    buildCommand: |
-      pip uninstall -y groq httpx || true
-      rm -rf /opt/render/project/src/.venv/lib/python3.12/site-packages/groq || true
-      rm -rf /opt/render/project/src/.venv/lib/python3.12/site-packages/httpx || true
-      pip install --no-cache-dir -r requirements.txt
+    buildCommand: pip uninstall -y groq httpx || true && rm -rf /opt/render/project/src/.venv/lib/python3.12/site-packages/groq || true && rm -rf /opt/render/project/src/.venv/lib/python3.12/site-packages/httpx || true && pip install --no-cache-dir -r requirements.txt
 
     startCommand: python app.py
-
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -21,7 +16,3 @@ services:
         value: mixtral-8x7b-32768
       - key: PORT
         value: 8000
-      - key: HOST
-        value: 0.0.0.0
-
-    healthCheckPath: /health

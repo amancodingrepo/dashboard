@@ -8,9 +8,9 @@ app = FastAPI()
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO").upper())
 logger = logging.getLogger("vanna")
 
-# Initialize Groq client
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
-client = Client(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+groq_client = Client(api_key=GROQ_API_KEY)
+groq_model = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
 
 class QueryRequest(BaseModel):
     prompt: str
@@ -23,12 +23,12 @@ def simple_sql(prompt):
     return 'SELECT id, "invoiceRef", "invoiceDate", "totalAmount" FROM "Invoice" ORDER BY "invoiceDate" DESC LIMIT 100;'
 
 def call_groq_with_sdk(prompt, model, retries=3):
-    if not client:
+    if not groq_client:
         raise Exception("Groq client not initialized")
     last_err = None
     for attempt in range(retries):
         try:
-            completion = client.chat.completions.create(
+            completion = groq_client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": "You are an assistant that outputs only SQL queries."},
@@ -57,10 +57,9 @@ async def query(req: QueryRequest):
     db = req.database_url or os.getenv('DATABASE_URL')
     if not db: raise HTTPException(status_code=400, detail='DATABASE_URL required')
     groq_key = os.getenv('GROQ_API_KEY')
-    groq_model = os.getenv('GROQ_MODEL') or 'mixtral-8x7b'
     groq_base = os.getenv('GROQ_BASE_URL') or 'https://api.groq.com/openai/v1'
     sql = None
-    if groq_key and client:
+    if groq_key and groq_client:
         try:
             s = call_groq_with_sdk(prompt, groq_model)
             s = s.strip().strip('`').strip()
