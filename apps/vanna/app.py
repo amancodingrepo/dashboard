@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 import time
 
+# Load environment variables
 load_dotenv()
 
 # ------------------------------------------------------
@@ -20,15 +21,18 @@ logger = logging.getLogger(__name__)
 # Flask App Setup
 # ------------------------------------------------------
 app = Flask(__name__)
-CORS(app, origins=['*'], methods=['GET', 'POST', 'OPTIONS'], allow_headers=['Content-Type', 'Authorization'])
+CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 # ------------------------------------------------------
-# Groq Setup
+# Groq Setup (Correct API)
 # ------------------------------------------------------
 from groq import Client
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+groq_model = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
+
+# Initialize Groq client (no proxies, no deprecated params)
 client = Client(api_key=GROQ_API_KEY)
-groq_model = os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768')
 
 # ------------------------------------------------------
 # Database Connection
@@ -39,7 +43,7 @@ def get_db_connection():
     for attempt in range(max_retries):
         try:
             conn = psycopg2.connect(
-                os.getenv('DATABASE_URL'),
+                os.getenv("DATABASE_URL"),
                 connect_timeout=5
             )
             return conn
@@ -49,11 +53,11 @@ def get_db_connection():
                 logger.error("Database connection failed permanently.")
                 raise
 
-            logger.warning(f"DB connection attempt {attempt+1} failed: {e}")
+            logger.warning(f"DB connection attempt {attempt + 1} failed: {e}")
             time.sleep(1)
 
 # ------------------------------------------------------
-# Schema Context used by LLM
+# LLM Schema Context
 # ------------------------------------------------------
 SCHEMA_CONTEXT = """
 Database Schema:
@@ -96,9 +100,9 @@ def health():
             "timestamp": datetime.utcnow().isoformat()
         }
 
+        # Optional Groq test
         if request.args.get("test_groq") == "true":
             try:
-                # Test the client
                 client.chat.completions.create(
                     messages=[{"role": "user", "content": "ping"}],
                     model=groq_model,
@@ -133,7 +137,6 @@ def generate_sql():
         if not GROQ_API_KEY:
             return jsonify({"error": "GROQ_API_KEY not set", "success": False}), 503
 
-        # Prepare LLM prompt
         prompt = f"""
 You are a SQL expert. Using this schema, generate a PostgreSQL query:
 
@@ -148,7 +151,7 @@ Rules:
 SQL:
 """
 
-        # ----- LLM CALL -----
+        # Call Groq LLM
         try:
             completion = client.chat.completions.create(
                 messages=[
@@ -169,7 +172,7 @@ SQL:
                 "success": False
             }), 503
 
-        # ----- EXECUTE SQL -----
+        # Execute Generated SQL
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -177,17 +180,17 @@ SQL:
             cursor.execute(sql)
             results = []
 
-            if cursor.description:  # SELECT query
+            if cursor.description:  # SELECT queries
                 columns = [col[0] for col in cursor.description]
                 rows = cursor.fetchall()
 
                 for r in rows:
                     row_data = {}
                     for i, col in enumerate(columns):
-                        val = r[i]
-                        if hasattr(val, "isoformat"):
-                            val = val.isoformat()
-                        row_data[col] = val
+                        value = r[i]
+                        if hasattr(value, "isoformat"):
+                            value = value.isoformat()
+                        row_data[col] = value
                     results.append(row_data)
 
                 response = {
@@ -224,7 +227,7 @@ SQL:
 
 
 # ------------------------------------------------------
-# Train Endpoint (placeholder)
+# Train Endpoint
 # ------------------------------------------------------
 @app.route("/train", methods=["POST"])
 def train():
