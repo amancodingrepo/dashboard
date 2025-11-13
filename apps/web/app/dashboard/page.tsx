@@ -1,3 +1,5 @@
+'use client'
+
 import StatCard from '@/components/dashboard/StatCard'
 import InvoiceVolumeChart from '@/components/charts/InvoiceVolumeChart'
 import SpendByVendorChart from '@/components/charts/SpendByVendorChart'
@@ -5,9 +7,10 @@ import SpendByCategoryChart from '@/components/charts/SpendByCategoryChart'
 import CashOutflowChart from '@/components/charts/CashOutflowChart'
 import InvoicesByVendorTable from '@/components/dashboard/InvoicesByVendorTable'
 import { ChatInterface } from '@/components/chat/ChatInterface'
-import { statsData } from '@/app/lib/data'
+import { useStatsData } from '@/app/lib/data'
 
 export default function DashboardPage() {
+  const statsData = useStatsData()
   return (
     <div className="p-6 bg-custom-slate-50">
       {/* Main Grid Layout */}

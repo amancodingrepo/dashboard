@@ -11,7 +11,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { invoiceTrendData } from '@/app/lib/data'
+import { useInvoiceTrendData } from '@/app/lib/data'
 import {
   Card,
   CardContent,
@@ -53,6 +53,8 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
 }
 
 export default function InvoiceVolumeChart() {
+  const invoiceTrendData = useInvoiceTrendData()
+
   return (
     <Card className="rounded-xl border border-custom-slate-200 bg-white shadow-sm transition-base">
       <CardHeader className="pb-2">

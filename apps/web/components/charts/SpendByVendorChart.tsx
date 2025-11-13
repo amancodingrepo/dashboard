@@ -17,22 +17,12 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { useVendorSpendData } from '@/app/lib/data'
 
 interface VendorData {
   name: string
   spend: number
 }
-
-const vendorData: VendorData[] = [
-  { name: 'ActionsOne', spend: 45000 },
-  { name: 'Test Solutions', spend: 43000 },
-  { name: 'PrimeVendors', spend: 38000 },
-  { name: 'GlobalAcces', spend: 32000 },
-  { name: 'OmegaLtd', spend: 30000 },
-  { name: 'Global Supply', spend: 8679.25 },
-  { name: 'OmegaUS', spend: 7500 },
-  { name: 'OmegaL12', spend: 7000 },
-]
 
 interface CustomTooltipProps {
   active?: boolean
@@ -59,6 +49,8 @@ const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
 }
 
 export default function SpendByVendorChart() {
+  const vendorData = useVendorSpendData()
+
   return (
     <Card className="rounded-xl border border-custom-slate-200 bg-white shadow-sm transition-base">
       <CardHeader>

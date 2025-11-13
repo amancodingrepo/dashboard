@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { invoicesData } from '@/app/lib/data'
+import { useInvoicesData } from '@/app/lib/data'
 import {
   Card,
   CardHeader,
@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/card'
 
 export default function InvoicesByVendorTable() {
+  const invoicesData = useInvoicesData()
+
   return (
     <Card className="rounded-xl border border-custom-slate-200 bg-white shadow-sm transition-base">
       <CardHeader className="pb-2">
