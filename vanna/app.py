@@ -5,15 +5,21 @@ from dotenv import load_dotenv
 import psycopg2
 from groq import Groq
 import json
+import logging
+from datetime import datetime
 
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app, origins=['*'], methods=['GET', 'POST', 'OPTIONS'], allow_headers=['Content-Type', 'Authorization'])
 
 # Initialize Groq client lazily
 groq_api_key = os.getenv('GROQ_API_KEY')
-groq_model = os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768')
+groq_model = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
 groq_client = None
 
 def get_groq_client():
@@ -24,19 +30,25 @@ def get_groq_client():
             raise ValueError("GROQ_API_KEY environment variable is not set")
         try:
             groq_client = Groq(api_key=groq_api_key)
+            logger.info(f"Groq client initialized with model: {groq_model}")
         except Exception as e:
-            print(f"Groq client initialization error: {e}")
+            logger.error(f"Groq client initialization error: {e}")
             raise e
     return groq_client
 
 # Database connection
 def get_db_connection():
-    return psycopg2.connect(os.getenv('DATABASE_URL'))
+    try:
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'), connect_timeout=5)
+        return conn
+    except Exception as e:
+        logger.error(f"Database connection error: {e}")
+        raise e
 
 # Schema information for context
 SCHEMA_CONTEXT = """
 Database Schema:
-1. Invoice table: id, invoice_ref, invoice_date, total_amount, payment_status, payment_due_date, vendor_id
+1. Invoice table: id, invoice_ref, invoice_date, total_amount, payment_status, payment_due_date, vendor_id, customer_id
 2. Vendor table: id, name, tax_id
 3. Customer table: id, name, address
 4. LineItem table: id, description, quantity, unit_price, total_price, document_id
@@ -53,10 +65,12 @@ def home():
     return jsonify({
         "service": "Vanna AI Backend",
         "status": "✅ Running successfully on Render",
-        "python_version": "3.12",
+        "python_version": "3.12.7",
+        "groq_model": groq_model,
         "endpoints": {
             "health": "/health",
             "generate_sql": "/generate-sql (POST)",
+            "chat_with_data": "/api/chat-with-data (POST) - Frontend endpoint",
             "train": "/train (POST)"
         },
         "message": "Vanna AI service is live and ready to generate SQL from natural language!"
@@ -65,14 +79,14 @@ def home():
 @app.route('/health', methods=['GET'])
 def health():
     try:
-        # Basic health check without external dependencies
         health_status = {
             "status": "healthy", 
             "service": "vanna-ai",
-            "python_version": "3.12",
+            "python_version": "3.12.7",
             "groq_configured": bool(groq_api_key),
+            "groq_model": groq_model,
             "database_url_set": bool(os.getenv('DATABASE_URL')),
-            "timestamp": "2024-11-12T07:50:00Z"
+            "timestamp": datetime.utcnow().isoformat()
         }
         
         # Only test Groq if explicitly requested
@@ -86,6 +100,7 @@ def health():
         
         return jsonify(health_status)
     except Exception as e:
+        logger.error(f"Health check error: {e}")
         return jsonify({
             "status": "error",
             "service": "vanna-ai",
@@ -107,6 +122,8 @@ def generate_sql():
                 "success": False
             }), 503
         
+        logger.info(f"Generating SQL for question: {question}")
+        
         # Generate SQL using Groq
         prompt = f"""You are a SQL expert. Given the following database schema and a natural language question, generate a valid PostgreSQL query.
 
@@ -121,33 +138,42 @@ Use date functions like NOW(), DATE_TRUNC() for date operations.
 
 SQL Query:"""
         
-        client = get_groq_client()
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a SQL expert that generates PostgreSQL queries. Output only valid SQL, no explanations."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            model=groq_model,
-            temperature=0.1,
-            max_tokens=1024,
-        )
-        
-        sql = chat_completion.choices[0].message.content.strip()
+        try:
+            client = get_groq_client()
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a SQL expert that generates PostgreSQL queries. Output only valid SQL, no explanations."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                model=groq_model,
+                temperature=0.1,
+                max_tokens=1024,
+            )
+            
+            sql = chat_completion.choices[0].message.content.strip()
+            logger.info(f"Generated SQL: {sql}")
+            
+        except Exception as groq_error:
+            logger.error(f"Groq API error: {groq_error}")
+            return jsonify({
+                "error": f"Groq error: {str(groq_error)}",
+                "success": False
+            }), 503
         
         # Clean up SQL (remove markdown code blocks if present)
         sql = sql.replace('```sql', '').replace('```', '').strip()
         
         # Execute SQL and get results
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
         try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
             cursor.execute(sql)
             
             # Get column names
@@ -171,6 +197,8 @@ SQL Query:"""
             cursor.close()
             conn.close()
             
+            logger.info(f"Query executed successfully. Rows returned: {len(results)}")
+            
             return jsonify({
                 "question": question,
                 "sql": sql,
@@ -179,8 +207,11 @@ SQL Query:"""
             })
             
         except Exception as db_error:
-            cursor.close()
-            conn.close()
+            logger.error(f"SQL execution error: {db_error}")
+            if 'cursor' in locals():
+                cursor.close()
+            if 'conn' in locals():
+                conn.close()
             return jsonify({
                 "error": f"SQL execution error: {str(db_error)}",
                 "sql": sql,
@@ -188,10 +219,18 @@ SQL Query:"""
             }), 500
         
     except Exception as e:
+        logger.error(f"Unexpected error in generate_sql: {e}")
         return jsonify({
             "error": str(e),
             "success": False
         }), 500
+
+@app.route('/api/chat-with-data', methods=['POST'])
+def chat_with_data():
+    """
+    Alias endpoint for frontend compatibility
+    """
+    return generate_sql()
 
 @app.route('/train', methods=['POST'])
 def train():
@@ -206,6 +245,7 @@ def train():
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8000))
-    print(f"Starting Vanna AI service on port {port}")
-    print("Schema context loaded")
+    print(f"🚀 Starting Vanna AI service on port {port}")
+    print(f"📊 Using Groq model: {groq_model}")
+    print(f"🗄️  Schema context loaded")
     app.run(host='0.0.0.0', port=port, debug=False)
