@@ -27,7 +27,11 @@ CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"], allow_headers=["Con
 # ------------------------------------------------------
 from groq import Client
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-groq_client = Client(api_key=GROQ_API_KEY)
+
+if not GROQ_API_KEY:
+    raise ValueError("ERROR: GROQ_API_KEY is missing from environment variables!")
+
+client = Client(api_key=GROQ_API_KEY)
 groq_model = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
 
 # ------------------------------------------------------
@@ -112,7 +116,7 @@ Output only SQL:
 
         # ---- LLM Call ----
         try:
-            response = groq_client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=groq_model,
                 messages=[
                     {"role": "system", "content": "Return ONLY SQL."},
