@@ -3,7 +3,6 @@ from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import psycopg2
-from groq import Client
 import json
 import logging
 from datetime import datetime
@@ -26,40 +25,10 @@ CORS(app, origins=['*'], methods=['GET', 'POST', 'OPTIONS'], allow_headers=['Con
 # ------------------------------------------------------
 # Groq Setup
 # ------------------------------------------------------
-groq_api_key = os.getenv('GROQ_API_KEY')
+from groq import Client
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+client = Client(api_key=GROQ_API_KEY)
 groq_model = os.getenv('GROQ_MODEL', 'mixtral-8x7b-32768')
-groq_client = None   # Lazy init
-
-
-def get_groq_client():
-    """Initialize Groq client once and reuse."""
-    global groq_client
-
-    if groq_client is not None:
-        return groq_client
-
-    if not groq_api_key:
-        raise ValueError("GROQ_API_KEY environment variable is not set")
-
-    try:
-        logger.info("Initializing Groq client...")
-        groq_client = Client(api_key=groq_api_key)
-
-        # Test the connection immediately
-        groq_client.chat.completions.create(
-            messages=[{"role": "user", "content": "ping"}],
-            model=groq_model,
-            max_tokens=1
-        )
-
-        logger.info("Groq client initialized successfully.")
-
-    except Exception as e:
-        groq_client = None
-        logger.error(f"Groq client initialization error: {e}")
-        raise ValueError(f"Failed to initialize Groq client: {str(e)}")
-
-    return groq_client
 
 # ------------------------------------------------------
 # Database Connection
@@ -122,14 +91,19 @@ def health():
     try:
         status = {
             "status": "healthy",
-            "groq_configured": bool(groq_api_key),
+            "groq_configured": bool(GROQ_API_KEY),
             "database_url_set": bool(os.getenv("DATABASE_URL")),
             "timestamp": datetime.utcnow().isoformat()
         }
 
         if request.args.get("test_groq") == "true":
             try:
-                get_groq_client()
+                # Test the client
+                client.chat.completions.create(
+                    messages=[{"role": "user", "content": "ping"}],
+                    model=groq_model,
+                    max_tokens=1
+                )
                 status["groq_test"] = "passed"
             except Exception as ex:
                 status["groq_test"] = f"failed: {ex}"
@@ -156,7 +130,7 @@ def generate_sql():
         if not question:
             return jsonify({"error": "Question cannot be empty", "success": False}), 400
 
-        if not groq_api_key:
+        if not GROQ_API_KEY:
             return jsonify({"error": "GROQ_API_KEY not set", "success": False}), 503
 
         # Prepare LLM prompt
@@ -176,7 +150,6 @@ SQL:
 
         # ----- LLM CALL -----
         try:
-            client = get_groq_client()
             completion = client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": "You output ONLY SQL."},

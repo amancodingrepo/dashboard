@@ -2,10 +2,15 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import os, requests, asyncpg, re, json, logging, time
 from typing import Optional
+from groq import Client
 
 app = FastAPI()
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO").upper())
 logger = logging.getLogger("vanna")
+
+# Initialize Groq client
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+client = Client(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 class QueryRequest(BaseModel):
     prompt: str
@@ -17,20 +22,21 @@ def simple_sql(prompt):
         return 'SELECT v.name AS vendor, SUM(i."totalAmount") AS total FROM "Vendor" v JOIN "Invoice" i ON i."vendorId" = v.id GROUP BY v.name ORDER BY total DESC LIMIT 10;'
     return 'SELECT id, "invoiceRef", "invoiceDate", "totalAmount" FROM "Invoice" ORDER BY "invoiceDate" DESC LIMIT 100;'
 
-def call_groq(prompt, key, model, base, timeout=10, retries=3):
-    headers = {'Authorization': f'Bearer {key}','Content-Type':'application/json'}
-    url = base.rstrip('/') + '/chat/completions'
-    payload = {'model': model, 'messages':[{'role':'system','content':'You are an assistant that outputs only SQL queries.'},{'role':'user','content':prompt}], 'temperature':0}
-    last_err: Optional[Exception] = None
+def call_groq_with_sdk(prompt, model, retries=3):
+    if not client:
+        raise Exception("Groq client not initialized")
+    last_err = None
     for attempt in range(retries):
         try:
-            r = requests.post(url, headers=headers, json=payload, timeout=timeout)
-            r.raise_for_status()
-            data = r.json()
-            try:
-                return data['choices'][0]['message']['content']
-            except Exception:
-                return json.dumps(data)
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are an assistant that outputs only SQL queries."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0
+            )
+            return completion.choices[0].message.content
         except Exception as e:
             last_err = e
             logger.warning("Groq call failed (attempt %s/%s): %s", attempt+1, retries, e)
@@ -54,9 +60,9 @@ async def query(req: QueryRequest):
     groq_model = os.getenv('GROQ_MODEL') or 'mixtral-8x7b'
     groq_base = os.getenv('GROQ_BASE_URL') or 'https://api.groq.com/openai/v1'
     sql = None
-    if groq_key:
+    if groq_key and client:
         try:
-            s = call_groq(prompt, groq_key, groq_model, groq_base)
+            s = call_groq_with_sdk(prompt, groq_model)
             s = s.strip().strip('`').strip()
             m = re.search(r'(SELECT[\s\S]+);?', s, re.IGNORECASE)
             sql = m.group(1) if m else s
