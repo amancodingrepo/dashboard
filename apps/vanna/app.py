@@ -57,7 +57,7 @@ def get_db():
             time.sleep(1)
 
 # ---------------------------------------------
-# SCHEMA CONTEXT
+# SCHEMA CONTEXT (UPDATED — NO payment_status)
 # ---------------------------------------------
 SCHEMA_CONTEXT = """
 PostgreSQL automatically lowercases identifiers.
@@ -67,8 +67,9 @@ Tables (ALL lowercase):
 customer(id, name, address, created_at, updated_at)
 vendor(id, name, tax_id, created_at, updated_at)
 document(id, name, file_size, is_validated_by_human, created_at, updated_at)
-invoice(id, invoice_ref, invoice_date, total_amount, payment_status,
-        payment_due_date, vendor_id, customer_id, created_at, updated_at)
+invoice(id, invoice_ref, invoice_date, total_amount,
+        payment_due_date, vendor_id, customer_id,
+        created_at, updated_at)
 lineitem(id, description, quantity, unit_price, total_price,
          document_id, invoice_id, created_at)
 
@@ -81,6 +82,7 @@ lineitem.invoice_id → invoice.id
 RULES FOR SQL GENERATION:
 - Always use lowercase table names
 - Always use lowercase column names
+- Never use payment_status (column does NOT exist)
 - Never use quotes around table/column names
 - Output ONLY SQL (no explanation)
 """
@@ -137,9 +139,7 @@ Generate an SQL query for:
 Return ONLY the SQL query.
 """
 
-        # ---------------------------------------------
-        # Groq SQL generation
-        # ---------------------------------------------
+        # ---- Groq SQL generation ----
         try:
             res = client.chat.completions.create(
                 model=GROQ_MODEL,
@@ -162,9 +162,7 @@ Return ONLY the SQL query.
 
         logger.info(f"[SQL-GEN] Output SQL: {sql}")
 
-        # ---------------------------------------------
-        # Execute SQL
-        # ---------------------------------------------
+        # ---- Execute SQL ----
         conn = get_db()
         cur = conn.cursor()
 
