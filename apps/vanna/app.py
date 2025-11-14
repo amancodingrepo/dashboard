@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vanna-backend")
 
 # ---------------------------------------------
-# Flask App
+# Flask App Setup
 # ---------------------------------------------
 app = Flask(__name__)
 CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"])
@@ -37,19 +37,18 @@ if not GROQ_API_KEY:
 client = Client(api_key=GROQ_API_KEY)
 
 # ---------------------------------------------
-# Database (PostgreSQL via Supabase)
+# Database Setup (PostgreSQL / Supabase)
 # ---------------------------------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("ERROR: DATABASE_URL missing!")
 
 def get_db():
-    """Auto-retry Postgres connection"""
+    """Auto-retry Postgres connection."""
     attempts = 3
     for i in range(attempts):
         try:
-            conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
-            return conn
+            return psycopg2.connect(DATABASE_URL, connect_timeout=5)
         except Exception as e:
             logger.warning(f"[DB] attempt {i+1} failed → {e}")
             if i == attempts - 1:
@@ -57,21 +56,39 @@ def get_db():
             time.sleep(1)
 
 # ---------------------------------------------
-# SCHEMA CONTEXT (UPDATED — NO payment_status)
+# CORRECT FINAL SCHEMA_CONTEXT (100% accurate)
 # ---------------------------------------------
 SCHEMA_CONTEXT = """
 PostgreSQL automatically lowercases identifiers.
 
 Tables (ALL lowercase):
 
-customer(id, name, address, created_at, updated_at)
-vendor(id, name, tax_id, created_at, updated_at)
-document(id, name, file_size, is_validated_by_human, created_at, updated_at)
-invoice(id, invoice_ref, invoice_date, total_amount,
-        payment_due_date, vendor_id, customer_id,
-        created_at, updated_at)
-lineitem(id, description, quantity, unit_price, total_price,
-         document_id, invoice_id, created_at)
+customer(
+  id, name, address,
+  created_at, updated_at
+)
+
+vendor(
+  id, name, tax_id,
+  created_at, updated_at
+)
+
+document(
+  id, name, file_size, is_validated_by_human,
+  created_at, updated_at
+)
+
+invoice(
+  id, invoice_ref, invoice_date, total_amount,
+  payment_due_date, vendor_id, customer_id,
+  created_at, updated_at
+)
+
+lineitem(
+  id, description, quantity, unit_price, total_price,
+  document_id, invoice_id,
+  created_at
+)
 
 Relationships:
 invoice.vendor_id → vendor.id
@@ -79,12 +96,12 @@ invoice.customer_id → customer.id
 lineitem.document_id → document.id
 lineitem.invoice_id → invoice.id
 
-RULES FOR SQL GENERATION:
+IMPORTANT RULES:
 - Always use lowercase table names
 - Always use lowercase column names
-- Never use payment_status (column does NOT exist)
-- Never use quotes around table/column names
-- Output ONLY SQL (no explanation)
+- Never use payment_status (this column does NOT exist)
+- Never use quotes around identifiers
+- Only return RAW SQL (no explanation, no markdown)
 """
 
 # ---------------------------------------------
@@ -99,7 +116,7 @@ def home():
         "timestamp": datetime.utcnow().isoformat(),
         "endpoints": {
             "health": "/health",
-            "generate_sql": "/generate-sql (POST)"
+            "generate_sql": "/generate-sql"
         }
     })
 
@@ -115,7 +132,7 @@ def health():
 
 
 # ---------------------------------------------
-# MAIN ENDPOINT
+# MAIN SQL GENERATION ENDPOINT
 # ---------------------------------------------
 @app.route("/generate-sql", methods=["POST"])
 def generate_sql():
@@ -128,32 +145,32 @@ def generate_sql():
 
         logger.info(f"[SQL-GEN] Request: {question}")
 
+        # PROMPT FOR GROQ
         prompt = f"""
 You are a PostgreSQL expert. Follow these rules strictly:
 
 {SCHEMA_CONTEXT}
 
-Generate an SQL query for:
+Generate an SQL query to answer the question:
 "{question}"
 
-Return ONLY the SQL query.
+Return ONLY the SQL query (no explanations).
 """
 
-        # ---- Groq SQL generation ----
+        # ---- LLM SQL GENERATION ----
         try:
-            res = client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": "Return ONLY SQL. Use lowercase table + column names. No comments."
-                    },
+                    {"role": "system",
+                     "content": "Return ONLY SQL. Use lowercase table and column names. No explanations, no comments."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,
                 max_tokens=1024
             )
-            sql = res.choices[0].message.content.strip()
+
+            sql = response.choices[0].message.content.strip()
             sql = sql.replace("```sql", "").replace("```", "").strip()
 
         except Exception as e:
@@ -162,18 +179,17 @@ Return ONLY the SQL query.
 
         logger.info(f"[SQL-GEN] Output SQL: {sql}")
 
-        # ---- Execute SQL ----
+        # ---- EXECUTE SQL ----
         conn = get_db()
         cur = conn.cursor()
 
         try:
             cur.execute(sql)
 
-            # SELECT query
-            if cur.description:
-                cols = [col[0] for col in cur.description]
+            if cur.description:  # SELECT query
+                column_names = [col[0] for col in cur.description]
                 rows = cur.fetchall()
-                results = [dict(zip(cols, row)) for row in rows]
+                results = [dict(zip(column_names, row)) for row in rows]
 
                 return jsonify({
                     "success": True,
@@ -181,7 +197,7 @@ Return ONLY the SQL query.
                     "results": results
                 })
 
-            # UPDATE / DELETE
+            # For UPDATE, DELETE, INSERT
             return jsonify({
                 "success": True,
                 "sql": sql,
