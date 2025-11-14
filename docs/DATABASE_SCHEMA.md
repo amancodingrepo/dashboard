@@ -1,34 +1,117 @@
 # Database Schema Documentation
 
 ## Overview
-This document describes the PostgreSQL database schema for the Flowbit Analytics application, designed to handle invoice processing, vendor management, and analytics data.
+This document describes the PostgreSQL database schema for the Flowbit Analytics application, designed to handle invoice processing, vendor management, analytics data, and AI-powered query logging.
 
 ## Entity Relationship Diagram
 
 ```
-┌─────────────┐       ┌─────────────┐       ┌─────────────┐
-│   Vendor    │       │   Invoice   │       │  Customer   │
-├─────────────┤       ├─────────────┤       ├─────────────┤
-│ id (PK)     │◄──────┤ vendor_id   │       │ id (PK)     │
-│ name        │       │ customer_id ├──────►│ name        │
-│ address     │       │ id (PK)     │       │ address     │
-│ tax_id      │       │ invoice_ref │       └─────────────┘
-│ created_at  │       │ invoice_date│
-│ updated_at  │       │ total_amount│
-└─────────────┘       │ payment_*   │
-                      └─────────────┘
-                             │
-                             ▼
-                      ┌─────────────┐       ┌─────────────┐
-                      │  Document   │       │  LineItem   │
-                      ├─────────────┤       ├─────────────┤
-                      │ id (PK)     │◄──────┤ document_id │
-                      │ invoice_id  │       │ id (PK)     │
-                      │ name        │       │ description │
-                      │ file_path   │       │ quantity    │
-                      │ file_size   │       │ unit_price  │
-                      │ status      │       │ total_price │
-                      └─────────────┘       └─────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        USERS                               │
+│  ┌─────────────────┐                                        │
+│  │   User          │                                        │
+│  ├─────────────────┤                                        │
+│  │ id (PK)         │                                        │
+│  │ email           │                                        │
+│  │ name            │                                        │
+│  │ role            │                                        │
+│  │ created_at      │                                        │
+│  │ updated_at      │                                        │
+│  └─────────────────┘                                        │
+└─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     CHAT HISTORY                            │
+│  ┌─────────────────┐                                        │
+│  │  ChatHistory    │                                        │
+│  ├─────────────────┤                                        │
+│  │ id (PK)         │                                        │
+│  │ user_id (FK)    │ ◄───┐                                  │
+│  │ query           │     │                                  │
+│  │ sql             │     │                                  │
+│  │ results (JSON)  │     │                                  │
+│  │ error           │     │                                  │
+│  │ created_at      │     │                                  │
+│  └─────────────────┘     │                                  │
+└──────────────────────────┼──────────────────────────────────┘
+                           │                               ┌─────────────────────────────────────────────────────────────┐
+                           │                               │                        ANALYTICS                            │
+                           │                               │  ┌─────────────────┐                                        │
+                           │                               │  │   Analytics     │                                        │
+                           │                               │  ├─────────────────┤                                        │
+                           │                               │  │ id (PK)         │                                        │
+                           │                               │  │ document_count  │                                        │
+                           │                               │  │ processed_count │                                        │
+                           │                               │  │ validated_count │                                        │
+                           │                               │  │ avg_confidence  │                                        │
+                           │                               │  │ total_file_size │                                        │
+                           │                               │  │ created_at      │                                        │
+                           │                               │  │ updated_at      │                                        │
+                           │  └─────────────────┘                                        │
+                           └───────────────────────────────────────────────────────────────│
+                   ┌──────────────────────────────────────────────────────────────────────┘
+                   │
+┌──────────────────▼─────────────────────────────────────────────────────┐
+│                                DOCUMENTS                                │
+│  ┌─────────────────┐    ┌─────────────────┐   ┌─────────────────┐     │
+│  │   Vendor        │    │   Invoice       │   │   Customer      │     │
+│  ├─────────────────┤    ├─────────────────┤   ├─────────────────┤     │
+│  │ id (PK)         │    │ id (PK)         │   │ id (PK)         │     │
+│  │ name            │    │ invoice_ref     │   │ name            │     │
+│  │ address         │    │ invoice_date    │   │ address         │     │
+│  │ tax_id          │    │ total_amount    │   └─────────────────┘     │
+│  │ created_at      │    │ vendor_id (FK)  │◄─────────────┐           │
+│  │ updated_at      │    │ customer_id(FK) │─────────────┘           │
+│  └─────────────────┘    │ payment_status  │                         │
+│                         │ payment_due_date│                         │
+│                         │ created_at      │                         │
+│                         │ updated_at      │                         │
+│                         └─────────────────┘                         │
+│                              │                                      │
+│                              │                                      │
+│                              ▼                                      │
+│                        ┌─────────────────┐                         │
+│                        │   Document      │                         │
+│                        ├─────────────────┤                         │
+│                        │ id (PK)         │◄────────────────────────┼───┐
+│                        │ document_id     │                         │   │
+│                        │ name            │                         │   │
+│                        │ file_path       │                         │   │
+│                        │ file_type       │                         │   │
+│                        │ file_size       │                         │   │
+│                        │ status          │                         │   │
+│                        │ is_validated    │                         │   │
+│                        │ organization_id │                         │   │
+│                        │ department_id   │                         │   │
+│                        │ template_name   │                         │   │
+│                        │ analytics_id(FK)│◄────────────────────────│───┘
+│                        │ invoice_id (FK) │◄────────────────────────┼───┐
+│                        │ confidence_score│                         │   │
+│                        │ processing_time │                         │   │
+│                        │ created_at      │                         │   │
+│                        │ updated_at      │                         │   │
+│                        └─────────────────┘                         │   │
+│                              │                                     │   │
+│                              ▼                                     │   │
+│                        ┌─────────────────┐                         │   │
+│                        │   LineItem      │                         │   │
+│                        ├─────────────────┤                         │   │
+│                        │ id (PK)         │◄────────────────────────┘   │
+│                        │ sr_no           │                             │
+│                        │ description     │                             │
+│                        │ quantity        │                             │
+│                        │ unit_price      │                             │
+│                        │ total_price     │                             │
+│                        │ sachkonto       │                             │
+│                        │ bu_schluessel   │                             │
+│                        │ vat_rate        │                             │
+│                        │ vat_amount      │                             │
+│                        │ extraction_conf │                             │
+│                        │ document_id(FK) │◄───────────────────────────┘
+│                        │ invoice_id (FK) │◄────────────────────────────┐
+│                        └─────────────────┘                             │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Tables

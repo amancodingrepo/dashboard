@@ -336,24 +336,133 @@ Save a chat interaction to history.
 - Development: All origins allowed
 - Production: Only specified domains in ALLOWED_ORIGINS environment variable
 
-## Chat Workflow
+## Chat Workflow & AI Processing
 
-The chat system follows this workflow:
+### Overview
+The chat system provides natural language to SQL processing with intelligent fallback mechanisms. It integrates Vanna AI (powered by Groq) for advanced query generation with built-in database queries as backup.
 
-1. **User Input**: User types natural language query
-2. **Query Processing**: System attempts to use Vanna AI service
-3. **Fallback System**: If Vanna AI unavailable, uses predefined database queries
-4. **SQL Generation**: Either AI-generated or fallback SQL query
-5. **Database Execution**: Query executed against PostgreSQL database
-6. **Result Formatting**: Results formatted for frontend display
-7. **History Storage**: Query and results saved to chat history
+### Processing Flow
 
-### Fallback Queries
-When Vanna AI is unavailable, the system supports these predefined queries:
-- Top vendors by spend
-- Total spend calculations
-- Overdue invoice analysis
-- Average invoice values
+```mermaid
+graph TD
+    A[User submits query] --> B{Is Vanna AI available?}
+    B -->|Yes| C[Send query to Vanna AI service]
+    B -->|No| D[Check fallback queries]
+    C --> E{AI response successful?}
+    E -->|Yes| F[Execute generated SQL]
+    E -->|No| D
+    D --> G{Query pattern match?}
+    G -->|Yes| H[Execute fallback query]
+    G -->|No| I[Return error: No suitable response]
+    F --> J[Return results with SQL]
+    H --> J
+    J --> K[Store in ChatHistory]
+```
+
+### Key Components
+
+1. **Primary Processing (Vanna AI)**:
+   - Uses Groq LLM for natural language to SQL conversion
+   - Accesses full database schema context
+   - Generates custom SQL for any query type
+   - Provides high flexibility for complex queries
+
+2. **Fallback System**:
+   - Activates when Vanna AI is unavailable (503, timeout, etc.)
+   - Supports predefined query patterns
+   - Uses direct database queries (Prisma ORM)
+   - Fast, reliable responses
+
+3. **Query Processing Steps**:
+   - **User Input**: Natural language text
+   - **Intelligent Routing**: Vanna AI → Fallback → Error
+   - **SQL Generation**: AI-generated or template-based
+   - **Database Execution**: Safe parameterized queries
+   - **Result Formatting**: JSON with original query and SQL
+   - **Audit Logging**: All interactions stored in ChatHistory
+
+### Supported Query Types
+
+#### AI-Generated Queries (Vanna AI)
+Any natural language query that can be translated to SQL:
+- "Show me invoices from vendor ABC Ltd between Jan and Mar"
+- "What's the average invoice amount for tech companies?"
+- "Find customers who spent over 10,000 euros last month"
+
+#### Fallback Query Patterns
+When Vanna AI unavailable, these patterns are recognized:
+
+- **Top/Bottom Vendors**: "top 5 vendors", "best performing vendors"
+  ```sql
+  SELECT v.name, SUM(i.total_amount) as spend, COUNT(i.id) as invoices
+  FROM Invoice i JOIN Vendor v ON i.vendor_id = v.id
+  GROUP BY v.id, v.name ORDER BY spend DESC LIMIT 5
+  ```
+
+- **Total Spend Calculations**: "total spend", "spend in last 90 days"
+  ```sql
+  SELECT SUM(total_amount), COUNT(*) as invoice_count,
+         AVG(total_amount) as avg_value
+  FROM Invoice WHERE invoice_date >= NOW() - INTERVAL '90 days'
+  ```
+
+- **Overdue Invoices**: "overdue invoices", "past due payments"
+  ```sql
+  SELECT i.invoice_ref, v.name, i.total_amount, i.payment_due_date
+  FROM Invoice i JOIN Vendor v ON i.vendor_id = v.id
+  WHERE i.payment_due_date < NOW() AND i.payment_status != 'paid'
+  ```
+
+- **Latest Activity**: "latest 5 invoices", "recent transactions"
+  ```sql
+  SELECT i.invoice_ref, v.name, i.total_amount, i.invoice_date
+  FROM Invoice i JOIN Vendor v ON i.vendor_id = v.id
+  ORDER BY i.invoice_date DESC LIMIT 5
+  ```
+
+### Response Format
+
+#### Successful Query Response
+```json
+{
+  "success": true,
+  "answer": "Here are the top 5 vendors by spend (using fast database query).",
+  "sql": "SELECT v.name as vendor_name, SUM(i.total_amount) as total_spend...",
+  "results": [
+    {
+      "vendor_name": "ABC Corp",
+      "total_spend": 45230.50,
+      "invoice_count": 12
+    }
+  ],
+  "source": "vanna-ai" // or "fallback-query"
+}
+```
+
+#### Error Response
+```json
+{
+  "success": false,
+  "error": "AI service not configured and no fallback available for this query.",
+  "answer": "The AI service is not available. Try asking: 'Show top vendors', 'Total spend'...",
+  "sql": null,
+  "results": []
+}
+```
+
+### Error Handling
+
+- **AI Service Failures**: Automatic fallback to predefined queries
+- **Database Errors**: Graceful error messages with retry suggestions
+- **Invalid Queries**: Helpful error messages with query suggestions
+- **Network Issues**: Timeout handling with connection status indications
+
+### Performance Optimization
+
+- **Response Caching**: Recent queries cached for performance
+- **Database Indexing**: Optimized indexes on frequently queried columns
+- **Query Limits**: Reasonable result set limits to prevent overload
+- **Concurrent Processing**: Multiple queries can be processed simultaneously
 
 ## Example Usage
 
